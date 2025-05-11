@@ -1,0 +1,4 @@
+packages:
+    spell-monad.cabal
+
+write-ghc-environment-files: always
