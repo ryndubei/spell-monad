@@ -3,3 +3,4 @@ dist-newstyle
 .direnv
 .vscode
 .ghc.environment.*
+cabal.project.local
