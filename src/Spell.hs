@@ -1,11 +1,9 @@
 {-# LANGUAGE NoImplicitPrelude #-}
-module Spell (Spell(..), SpellF(..), SpellError(..), MonadSpell, putChar, getChar, getLine, putStr, putStrLn) where
+module Spell (Spell(..), SpellF(..), SpellError(..), putChar, getChar) where
 
 import Control.Monad.Except
 import Control.Monad.Free
-import Prelude hiding (putStrLn, putStr, getLine, getChar, putChar, print)
-
-type MonadSpell m = (MonadFree SpellF m, MonadError SpellError m)
+import Prelude hiding (getChar, putChar)
 
 newtype Spell a = Spell { unSpell :: ExceptT SpellError (Free SpellF) a }
   deriving (Functor, Applicative, Monad, MonadFree SpellF, MonadError SpellError)
@@ -22,16 +20,3 @@ putChar c = liftF (PutChar c ())
 
 getChar :: Spell Char
 getChar = liftF (GetChar id)
-
-getLine :: Spell String
-getLine = do
-  c <- getChar
-  if c == '\n'
-    then pure []
-    else fmap (c :) getLine
-
-putStr :: String -> Spell ()
-putStr = mapM_ putChar
-
-putStrLn :: String -> Spell ()
-putStrLn str = putStr str >> putChar '\n'

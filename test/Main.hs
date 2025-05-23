@@ -51,19 +51,21 @@ interpretSpell ~(Spell s) = catch
 testSpellInterpreted :: String
 testSpellInterpreted = unlines
   [ "let"
-  , "  repeatLn :: Spell.Spell ()"
+  , "  repeatLn :: Spell ()"
   , "  repeatLn = do"
-  , "    Spell.putStrLn \"INPUT (<=6 chars)\""
-  , "    str <- Spell.getLine"
-  , "    Spell.putStrLn str"
+  , "    putStrLn \"INPUT (<=6 chars)\""
+  , "    str <- getLine"
+  , "    putStrLn str"
   , "in repeatLn"
   ]
 
 main :: IO ()
 main = do
   (itpResult :: Either InterpreterError (Spell ())) <- runInterpreter do
-    setImports ["Spell"]
+    set [languageExtensions := [NoImplicitPrelude]]
+    setImports ["Prelude.Spell"]
     liftIO $ hPutStrLn stderr "Interpreter initialised"
+
     interpret testSpellInterpreted (as :: Spell ())
   (s :: Spell ()) <- either (fail . displayException) pure itpResult
   sResult <- interpretSpell s
