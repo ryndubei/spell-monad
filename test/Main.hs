@@ -2,27 +2,30 @@
 {-# LANGUAGE BlockArguments #-}
 module Main (main) where
 
-import Spell (Spell(..), SpellF(..), SpellError(..))
+import Spell (Spell(..), SpellF(..), SpellException(..))
 import Control.Exception
 import Control.Monad.Free
-import Control.Monad.Except
 import Data.IORef
 import Language.Haskell.Interpreter
 import System.IO
 import System.Console.ANSI
+import Data.Maybe
 
 maxSideEffects :: Int
 maxSideEffects = 32
 
-interpretSpell :: Spell a -> IO (Either SpellError a)
+-- idea: annotate user-provided values with
+-- data Untrusted a = Untrusted a
+-- that has instances for monad etc
+--
+-- toTrusted :: DeepSeq a => Untrusted a -> Either SomeException a
+
+interpretSpell :: Spell a -> IO (Either SomeException a)
 interpretSpell ~(Spell s) = catch
-  itp
+  (fmap Right itp)
   \case
-    -- for later: HeapOverflow should be rethrown to the thread running
-    -- interpretSpell if caught elsewhere
-    HeapOverflow -> pure (Left OutOfMemory)
-    StackOverflow -> pure (Left OutOfMemory)
-    e -> throwIO e
+    e | Just (SomeAsyncException e') <- fromException e -> throwIO e'
+    e -> pure (Left e)
   where
     itp = do
       mana <- newIORef maxSideEffects
@@ -33,8 +36,8 @@ interpretSpell ~(Spell s) = catch
             then do
               modifyIORef' mana (subtract 1)
               itr s'
-            else pure (Left OutOfSideEffects))
-        (runExceptT s)
+            else throwIO OutOfSideEffects)
+        s
     itr = \case
       PutChar c next -> do
         setSGR [SetColor Foreground Dull Blue]
@@ -47,6 +50,11 @@ interpretSpell ~(Spell s) = catch
         c <- getChar
         setSGR [Reset]
         next c
+      -- Note: prefer using actual exceptions instead of Either 
+      -- because we want to allow the user to catch e.g.
+      -- divisions by zero
+      Catch a h -> catch a (\e -> fromMaybe (throwIO e) (h e))
+
 
 testSpellInterpreted :: String
 testSpellInterpreted = unlines

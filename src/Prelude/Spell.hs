@@ -1,7 +1,7 @@
 {-# LANGUAGE NoImplicitPrelude #-}
 module Prelude.Spell
   ( Spell
-  , SpellError(..)
+  , SpellException(..)
   , putChar
   , getChar
   , getLine
@@ -11,13 +11,15 @@ module Prelude.Spell
   , Functor(..)
   , Applicative(..)
   , Monad(..)
-  -- * mtl
-  , MonadError(..)
+  -- * exceptions
+  , MonadThrow(..)
+  , MonadCatch(..)
+  , MonadMask(..)
   ) where
 
 import Prelude hiding (getLine, putStr, putStrLn, putChar, getChar)
-import Control.Monad.Except
 import Spell
+import Control.Monad.Catch
 
 getLine :: Spell String
 getLine = do

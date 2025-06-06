@@ -20,6 +20,7 @@ common warnings
 library
     import:           warnings
     exposed-modules:  Spell
+                    , Spell.Exception
                     , Prelude.Spell
     -- other-modules:
     -- other-extensions:
@@ -39,6 +40,7 @@ test-suite spell-monad-test
     hs-source-dirs:   test
     main-is:          Main.hs
     build-depends:    base
+                    , containers
                     , spell-monad
                     , ansi-terminal
                     , free
