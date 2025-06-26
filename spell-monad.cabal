@@ -24,13 +24,45 @@ library
                     , Prelude.Spell
     -- other-modules:
     -- other-extensions:
-    build-depends:    base ^>=4.19.0.0
+    build-depends:    base
                     , exceptions
                     , free
                     , mtl
                     , transformers
     hs-source-dirs:   src
     default-language: GHC2021
+
+executable spell-monad-exe
+    import:           warnings
+    default-language: GHC2021
+    main-is:          Main.hs
+    other-modules:    App
+                    , Input
+                    , Simulation
+    hs-source-dirs:   app
+    default-extensions:
+        Arrows
+        TypeFamilies
+        DataKinds
+    build-depends:    base
+                    , spell-monad
+                    , async
+                    , brick
+                    , bytestring
+                    , free
+                    , resourcet
+                    , rhine
+                    , hint
+                    , logging-effect
+                    , mtl
+                    , profunctors
+                    , transformers
+                    , stm
+                    , text
+                    , time
+                    , unliftio
+                    , vector-sized
+                    , vty
 
 test-suite spell-monad-test
     import:           warnings
