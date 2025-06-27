@@ -38,6 +38,7 @@ executable spell-monad-exe
     main-is:          Main.hs
     other-modules:    App
                     , Input
+                    , Orphans
                     , Simulation
     hs-source-dirs:   app
     default-extensions:
@@ -54,6 +55,7 @@ executable spell-monad-exe
                     , rhine
                     , hint
                     , logging-effect
+                    , monad-schedule
                     , mtl
                     , profunctors
                     , transformers
