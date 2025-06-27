@@ -4,7 +4,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
-module App (UserClock(..), UIThreadException(..), AppThread, withAppThread, DisplayClock, AppResult(..), appRh) where
+module App (UserClock(..), UIThreadException(..), AppThread, withAppThread, DisplayClock(..), AppResult(..), appRh) where
 
 import Graphics.Vty
 import FRP.Rhine.Clock
