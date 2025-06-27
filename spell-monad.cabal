@@ -48,6 +48,7 @@ executable spell-monad-exe
     build-depends:    base
                     , spell-monad
                     , async
+                    , automaton
                     , brick
                     , bytestring
                     , free

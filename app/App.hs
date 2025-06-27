@@ -2,8 +2,9 @@
 {-# LANGUAGE BlockArguments #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
-module App (UserClock(..), UIThreadException(..), AppThread, withAppThread, DisplayClock, displayClock, AppResult(..), appRh) where
+module App (UserClock(..), UIThreadException(..), AppThread, withAppThread, DisplayClock, AppResult(..), appRh) where
 
 import Graphics.Vty
 import FRP.Rhine.Clock
@@ -17,10 +18,12 @@ import Control.Exception
 import Input
 import Simulation
 import Brick.BChan
-import FRP.Rhine.Clock.Except
 import Control.Monad
 import Control.Monad.Log
 import Data.Text (Text)
+import qualified Data.Automaton.Trans.Except as A
+import Control.Monad.Reader
+import Data.Foldable (traverse_)
 
 stateChanSize :: Int
 stateChanSize = 16
@@ -51,7 +54,7 @@ newtype UIThreadException = UIThreadException SomeException deriving Show
 
 instance Exception UIThreadException
 
-instance (MonadIO m, MonadError AppResult m, MonadReader AppThread m) => Clock m UserClock where
+instance MonadIO m => Clock (ReaderT AppThread (ExceptT AppResult m)) UserClock where
   type Time UserClock = UTCTime
   type Tag UserClock = UserInput
   initClock UserClock = do
@@ -69,53 +72,40 @@ instance (MonadIO m, MonadError AppResult m, MonadReader AppThread m) => Clock m
 
 instance GetClockProxy UserClock
 
--- | Ticks whenever a display input is consumed
-data DisplayedClock = DisplayedClock
+-- | Ticks whenever a display input is needed
+data DisplayClock = DisplayClock
 
-instance (MonadIO m, MonadReader AppThread m) => Clock m DisplayedClock where
-  type Time DisplayedClock = UTCTime
-  type Tag DisplayedClock = ()
-  initClock DisplayedClock = do
-    t0 <- liftIO getCurrentTime
-    pure . (,t0) $ constM do
-      AppThread{gameState, gameStateChan} <- ask
-      s <- liftIO $ takeMVar gameState
-      liftIO $ writeBChan gameStateChan s
-      t <- liftIO getCurrentTime
-      pure (t, ())
-
-instance GetClockProxy DisplayedClock
-
--- | Ticks whenever a new display input is needed
-newtype DisplayClock = DisplayClock (forall m. MonadIO m => DisplayClock' m)
-type DisplayClock' m = CatchClock (Single (ExceptT () m) UTCTime () ()) () DisplayedClock
-
-displayClock :: DisplayClock
-displayClock = DisplayClock $ CatchClock
-  (Single () (liftIO getCurrentTime) ())
-  (const DisplayedClock)
-
-whichever :: Either a a -> a
-whichever (Right a) = a
-whichever (Left a) = a
-
-instance forall m. (MonadIO m, MonadReader AppThread m) => Clock m DisplayClock where
+instance MonadIO m => Clock (ReaderT AppThread m) DisplayClock where
   type Time DisplayClock = UTCTime
   type Tag DisplayClock = ()
-  initClock (DisplayClock cl) = do
-    (k, t0) <- initClock (cl :: DisplayClock' m)
-    pure (k >>> arr (second whichever), t0)
+  initClock DisplayClock = do
+    t0 <- liftIO getCurrentTime
+    AppThread{gameState, gameStateChan} <- ask
+    pure . (, t0) $ safely do
+      -- flush MVar in case it is non-empty
+      A.once_ $ do
+        a <- liftIO $ tryTakeMVar gameState
+        traverse_ (liftIO . writeBChan gameStateChan) a 
+      A.try $ A.forever do
+        -- announce input is needed
+        A.step $ const do
+          t <- liftIO getCurrentTime
+          pure ((t, ()), ())
+        -- block until input is given
+        A.once_ $ do
+          a <- liftIO $ takeMVar gameState
+          liftIO $ writeBChan gameStateChan a 
 
 instance GetClockProxy DisplayClock
 
-appOut :: MonadReader AppThread m => ClSF m UserClock () UserInput
+appOut :: Monad m => ClSF m UserClock () UserInput
 appOut = tagS
 
-appIn :: (MonadIO m, MonadReader AppThread m, MonadLog (WithSeverity Text) m) => ClSF m DisplayClock SimState ()
+appIn :: (MonadIO m, MonadLog (WithSeverity Text) m) => ClSF (ReaderT AppThread m) DisplayClock SimState ()
 appIn = arrMCl \s -> do
   AppThread{gameState} <- ask
   written <- liftIO $ tryPutMVar gameState s
   unless written $ logWarning "appIn failed to write to MVar (race condition?)"
 
-appRh :: (MonadIO m, MonadReader AppThread m, MonadLog (WithSeverity Text) m, MonadError AppResult m) => Rhine m (DisplayClock `SeqClock` UserClock) SimState UserInput
-appRh = appIn @@ displayClock >-- trivialResamplingBuffer --> appOut @@ UserClock
+appRh :: (MonadIO m, MonadLog (WithSeverity Text) m) => Rhine (ReaderT AppThread (ExceptT AppResult m)) (DisplayClock `SeqClock` UserClock) SimState UserInput
+appRh = appIn @@ DisplayClock >-- trivialResamplingBuffer --> appOut @@ UserClock
