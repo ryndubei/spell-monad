@@ -80,8 +80,8 @@ instance MonadIO m => Clock (ReaderT AppThread m) DisplayClock where
   type Tag DisplayClock = ()
   initClock DisplayClock = do
     t0 <- liftIO getCurrentTime
-    AppThread{gameState, gameStateChan} <- ask
     pure . (, t0) $ safely do
+      AppThread{gameState, gameStateChan} <- A.once_ ask
       -- flush MVar in case it is non-empty
       A.once_ $ do
         a <- liftIO $ tryTakeMVar gameState
