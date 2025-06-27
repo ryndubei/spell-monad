@@ -109,3 +109,6 @@ appIn = arrMCl \s -> do
 
 appRh :: (MonadIO m, MonadLog (WithSeverity Text) m) => Rhine (ReaderT AppThread (ExceptT AppResult m)) (DisplayClock `SeqClock` UserClock) SimState UserInput
 appRh = appIn @@ DisplayClock >-- trivialResamplingBuffer --> appOut @@ UserClock
+
+-- or possibly
+-- runApp :: forall m cl. (MonadIO m, (forall u. u ~ In cl), (forall d. d ~ Out cl)) => Rhine m cl UserInput SimState -> m ()
