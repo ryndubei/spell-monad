@@ -64,7 +64,7 @@ instance MonadIO m => Clock (ReaderT AppThread (ExceptT AppResult m)) UserClock 
       mer <- liftIO $ poll resultAsync
       case mer of
         Nothing -> do
-          u <- liftIO $ readMVar userInput
+          u <- liftIO $ takeMVar userInput
           t <- liftIO getCurrentTime
           pure (t, u)
         Just (Left e) -> liftIO $ throwIO (UIThreadException e)
