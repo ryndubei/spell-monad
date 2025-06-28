@@ -37,6 +37,7 @@ executable spell-monad-exe
     default-language: GHC2021
     main-is:          Main.hs
     other-modules:    App
+                    , App.UI
                     , Input
                     , Orphans
                     , Simulation
@@ -45,6 +46,7 @@ executable spell-monad-exe
         Arrows
         TypeFamilies
         DataKinds
+    ghc-options: -threaded
     build-depends:    base
                     , spell-monad
                     , async
