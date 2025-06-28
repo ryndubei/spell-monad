@@ -5,7 +5,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE ApplicativeDo #-}
 
-module App (UserClock(..), UIThreadException(..), AppThread, withAppThread, DisplayClock(..), AppResult(..), appRh) where
+module App (UserClock(..), UIThreadException(..), AppThread, withAppThread, DisplayClock(..), AppResult, appRh) where
 
 import Graphics.Vty
 import FRP.Rhine.Clock
@@ -25,13 +25,13 @@ import Data.Text (Text)
 import qualified Data.Automaton.Trans.Except as A
 import Control.Monad.Reader
 import Data.Foldable (traverse_)
+import Brick
+import App.UI
 
 stateChanSize :: Int
 stateChanSize = 16
 
 data UserClock = UserClock
-
-data AppState
 
 data AppThread = AppThread
   { resultAsync :: !(Async AppResult)
@@ -46,10 +46,10 @@ withAppThread f = do
   gameState <- newEmptyMVar
   gameStateChan <- newBChan stateChanSize
   withAsync
-    do undefined -- app
+    (customMainWithDefaultVty (Just gameStateChan) (theapp userInput) initialAppState)
     \resultAsync -> f AppThread{..}
 
-newtype AppResult = AppResult (AppState, Vty)
+type AppResult = (AppState, Vty)
 
 newtype UIThreadException = UIThreadException SomeException deriving Show
 
