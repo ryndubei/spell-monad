@@ -3,6 +3,7 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE ApplicativeDo #-}
 
 module App (UserClock(..), UIThreadException(..), AppThread, withAppThread, DisplayClock(..), AppResult(..), appRh) where
 
