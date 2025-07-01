@@ -1,9 +1,17 @@
-module Input (Angle(..), UserInput(..)) where
+module Input (Angle, fromRadians, toRadians, UserInput(..)) where
 
 import Data.Text (Text)
+import Data.Fixed (mod')
 
-data Relative = Relative { relX :: Rational, relY :: Rational }
+newtype Angle = Angle { toRadians :: Double }
+  deriving (Eq, Show)
 
-newtype Angle = Angle Double -- ^ Radians.
+fromRadians :: Double -> Angle
+fromRadians r = Angle (r `mod'` (2*pi)) 
 
-data UserInput = ReplLine Text | Move Angle | Pause 
+data UserInput
+  = ReplLine Text
+  | Move Angle
+  | Pause
+  | Unpause
+  | Point Angle Double

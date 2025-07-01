@@ -4,6 +4,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE ApplicativeDo #-}
+{-# LANGUAGE ExtendedDefaultRules #-}
 
 module App (UserClock(..), UIThreadException(..), AppThread, withAppThread, DisplayClock(..), AppResult, appRh) where
 

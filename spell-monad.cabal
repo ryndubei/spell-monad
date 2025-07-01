@@ -57,6 +57,7 @@ executable spell-monad-exe
                     , resourcet
                     , rhine
                     , hint
+                    , lens
                     , logging-effect
                     , monad-schedule
                     , mtl
