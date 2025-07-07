@@ -36,11 +36,11 @@ instance MonadIO m => Clock m (DisplayClock s) where
     tq <- newTQueueIO
     let rcl = A.forever do
           -- complain about needing more display data once
-          A.step . const $ fmap (,()) do
+          A.step . const $ do
             events <- atomically $ flushTQueue tq
             liftIO $ traverse_ (writeBChan (brickBChan th)) events
             t <- liftIO getCurrentTime
-            pure (t, tq)
+            pure ((t, tq), ())
           -- then block until more data is given
           A.once_ . liftIO $ atomically do
             b <- isEmptyTQueue tq
