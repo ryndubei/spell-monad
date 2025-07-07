@@ -1,0 +1,73 @@
+{-# LANGUAGE RoleAnnotations #-}
+{-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE BlockArguments #-}
+module App.Thread (AppThread, withAppThread, BrickThread(brickBChan), newBrickThread, BrickExitClock(..)) where
+
+import Graphics.Vty
+import Graphics.Vty.CrossPlatform
+import Control.Exception
+import Data.IORef
+import Brick.BChan
+import Control.Concurrent.Async
+import Control.Monad.Trans.Resource
+import Brick
+import Control.Monad.IO.Class
+import FRP.Rhine
+import Data.Void
+import Data.Time
+
+type role AppThread nominal
+-- | ST trick to force each app thread to be a distinct type
+data AppThread s = AppThread
+  { vty :: !(IORef Vty)
+  , rebuildVty :: !(IO Vty)
+  }
+
+withAppThread :: (forall s. AppThread s -> IO a) -> IO a
+withAppThread f = do
+  bracket
+    do
+      vty1 <- mkVty defaultConfig
+      vty <- newIORef vty1
+      let rebuildVty = do
+            v <- mkVty defaultConfig
+            writeIORef vty v
+            pure v
+      pure AppThread {..}
+    (\AppThread{..} -> readIORef vty >>= shutdown)
+    f
+
+brickBChanSize :: Int
+brickBChanSize = 64
+
+data BrickThread st e s = BrickThread
+  { appThread :: !(AppThread s)
+  , brickBChan :: !(BChan e)
+  , brickAsync :: !(Async (st, Vty))
+  , rk :: !ReleaseKey
+  }
+
+newBrickThread :: (MonadResource m, Ord n) => AppThread s -> App st e n -> st -> m (BrickThread st e s)
+newBrickThread appThread theapp initialState = do
+  brickBChan <- liftIO $ newBChan brickBChanSize
+  vty' <- liftIO $ readIORef (vty appThread)
+  (rk, brickAsync) <- allocate
+    (async $ customMainWithVty vty' (rebuildVty appThread) (Just brickBChan) theapp initialState)
+    uninterruptibleCancel
+  pure BrickThread{..}
+
+data BrickExitClock st s = forall e. BrickExitClock (BrickThread st e s)
+
+instance MonadIO m => Clock (ExceptT st m) (BrickExitClock st s) where
+  type Time (BrickExitClock st s) = UTCTime
+  type Tag (BrickExitClock st s) = Void
+  initClock (BrickExitClock bth) = do
+    t0 <- liftIO getCurrentTime
+    let rcl = constM do
+          (s, v) <- liftIO $ wait (brickAsync bth)
+          liftIO $ writeIORef (vty $ appThread bth) v
+          release (rk bth)
+          throwE s
+    pure (rcl, t0)
+
+instance GetClockProxy (BrickExitClock st s)

@@ -1,16 +1,29 @@
 {-# OPTIONS_GHC -Wno-orphans #-}
 {-# LANGUAGE DerivingVia #-}
+{-# LANGUAGE BlockArguments #-}
 module Orphans () where
 
-import Control.Monad.Log
+import qualified Control.Monad.Log as Log
 import Control.Monad.Schedule.Class
 import Control.Monad.Reader
 import Data.Bifunctor
+import Data.Automaton.Trans.Except
+import Control.Monad.Trans.Resource
+import UnliftIO (MonadUnliftIO(withRunInIO))
 
-instance (Monad m, MonadSchedule m) => MonadSchedule (LoggingT msg m) where
+instance (Monad m, MonadSchedule m) => MonadSchedule (Log.LoggingT msg m) where
   -- generalised newtype deriving and coerce both complain, so has to be done explicitly
   schedule xs = s'
     where
-      schedule' = schedule @(ReaderT (Handler m msg) m)
-      s = schedule' (fmap (\(LoggingT x) -> x) xs)
-      s' = second (map LoggingT) <$> LoggingT s
+      schedule' = schedule @(ReaderT (Log.Handler m msg) m)
+      s = schedule' (fmap (\(Log.LoggingT x) -> x) xs)
+      s' = second (map Log.LoggingT) <$> Log.LoggingT s
+
+instance (MonadUnliftIO m, MonadSchedule m) => MonadSchedule (ResourceT m) where
+  schedule xs = withRunInIO \z -> do
+    let xs' = fmap z xs
+    xs'' <- schedule xs'
+    pure $ second (map liftIO) xs''
+
+instance MonadIO m => MonadIO (AutomatonExcept a b m) where
+  liftIO = lift . liftIO

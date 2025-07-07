@@ -36,8 +36,10 @@ executable spell-monad-exe
     import:           warnings
     default-language: GHC2021
     main-is:          Main.hs
-    other-modules:    App
-                    , App.UI
+    other-modules:    App.UI.MainMenu
+                    , App.UI.GameScreen
+                    , App.Thread
+                    , GameData
                     , Input
                     , Orphans
                     , Simulation
@@ -61,6 +63,7 @@ executable spell-monad-exe
                     , logging-effect
                     , monad-schedule
                     , mtl
+                    , mmorph
                     , profunctors
                     , transformers
                     , stm
@@ -69,6 +72,7 @@ executable spell-monad-exe
                     , unliftio
                     , vector-sized
                     , vty
+                    , vty-crossplatform
 
 test-suite spell-monad-test
     import:           warnings

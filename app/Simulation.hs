@@ -1,5 +1,9 @@
-module Simulation (SimState(..), SimClock(..)) where
+module Simulation (SimState(..), simRhine) where
 
-data SimState
+import FRP.Rhine
+import Input (UserInput)
 
-data SimClock
+data SimState = SimState
+
+simRhine :: MonadIO m => SimState -> Rhine m Busy (Maybe UserInput) SimState
+simRhine s0 = undefined
