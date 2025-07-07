@@ -18,9 +18,10 @@ import Data.Void
 import UnliftIO
 import Brick
 import Control.Monad.Schedule.Class (MonadSchedule)
-import Control.Concurrent.STM (check)
 import Control.Monad.Trans.Resource
 import Control.Monad.Trans.Cont
+import Control.Concurrent.STM (flushTQueue, check)
+import Data.Foldable (traverse_)
 
 data GameExit = ExitDesktop | ExitMainMenu
 
@@ -29,28 +30,20 @@ data DisplayClock s = forall st. DisplayClock (BrickThread st SimState s)
 
 instance MonadIO m => Clock m (DisplayClock s) where
   type Time (DisplayClock s) = UTCTime
-  -- may be worth replacing with TQueue
-  type Tag (DisplayClock s) = TChan SimState
+  type Tag (DisplayClock s) = TQueue SimState
   initClock (DisplayClock th) = do
     t0 <- liftIO getCurrentTime
-    tc <- liftIO newTChanIO
-    let go = do
-          ma <- liftIO . atomically $ tryReadTChan tc
-          case ma of
-            Nothing -> pure ()
-            Just a -> do
-              liftIO $ writeBChan (brickBChan th) a
-              go
-        rcl = A.forever do
+    tq <- newTQueueIO
+    let rcl = A.forever do
           -- complain about needing more display data once
           A.step . const $ fmap (,()) do
-            go
-            tc' <- liftIO . atomically $ dupTChan tc
+            events <- atomically $ flushTQueue tq
+            liftIO $ traverse_ (writeBChan (brickBChan th)) events
             t <- liftIO getCurrentTime
-            pure (t, tc')
+            pure (t, tq)
           -- then block until more data is given
           A.once_ . liftIO $ atomically do
-            b <- isEmptyTChan tc
+            b <- isEmptyTQueue tq
             check (not b)
           -- repeat
     return (rcl, t0)
@@ -77,12 +70,19 @@ initialAppState = AppState
 
 inClSF :: MonadIO m => ClSF (ExceptT GameExit m) (DisplayClock s) SimState ()
 inClSF = proc s -> do
-  tc <- tagS -< ()
-  -- I think `atomically . writeTChan tc` might block when there are multiple
-  -- competing writer threads, but the user (= me) would have to be stupid
-  -- to use the Rhine provided by `withGameUI` more than once anyway (let
-  -- alone enough times to cause noticeable blocking), so it's fine
-  arrMCl (\(tc, s) -> atomically $ writeTChan tc s) -< (tc, s)
+  tq <- tagS -< ()
+  {-
+  Note that `atomically . writeTQueue tq` is not going to block because
+  we will only ever have one thread writing to the TQueue
+  (unless we do something stupid, like
+  
+  rh <- newGameUI >>= feedbackRhine ...
+  _ <- forkIO $ reactimate rh
+  reactimate rh
+  
+  )
+  -}
+  arrMCl (\(tc, s) -> atomically $ writeTQueue tc s) -< (tq, s)
 
 newtype SymmContT m a = SymmContT { unSymmCont :: ContT a m a }
 
