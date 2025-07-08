@@ -15,8 +15,6 @@ import Control.Monad.Schedule.Class
 import Brick.Widgets.Dialog
 import qualified Data.Text as T
 import Control.Lens (makeLenses)
-import Control.Lens.Operators
-import Data.Foldable
 import Graphics.Vty
 
 data MenuExit = Quit | Load Level
@@ -65,36 +63,38 @@ newMainMenu th = do
       Just ButtonLoad -> Load (error "load")
       Just ButtonContinue -> Load (error "continue")
 
-selectableButtonsOnly :: Dialog Selectability Name -> Dialog Selectability Name
-selectableButtonsOnly = dialogButtonsL %~ filter (\(_, _, sel) -> sel == Selectable)
+-- | Handle a dialog event, ignoring unselectable buttons
+handleDialogEventSelectable :: Eq n => Event -> EventM n (Dialog Selectability n) ()
+handleDialogEventSelectable e = do
+  dl <- Brick.get
+  let foc = getDialogFocus dl
+      selectableButtons = filter (\(_, n, sel) -> sel == Selectable || Just n == foc) $ dialogButtons dl
+      tt = dialogTitle dl
+      wid = dialogWidth dl
+      dl' = dialog tt ((,selectableButtons) <$> foc) wid
+  mn <- getDialogFocus <$> nestEventM' dl' (handleDialogEvent e)
+  case mn of
+    Nothing -> pure ()
+    Just n -> modify (setDialogFocus n)
 
 theapp :: App MainMenuState Void Name
 theapp = App {..}
   where
     appDraw s = [ renderDialog (_mainMenuDialog s) emptyWidget ]
 
+    appHandleEvent (VtyEvent (EvKey KEnter _)) = do
+      sel <- dialogSelection . _mainMenuDialog <$> Brick.get
+      case sel of
+        Nothing -> pure ()
+        Just (_, Unselectable) -> pure ()
+        -- exit command to be interpreted by BrickExitClock
+        Just (ButtonContinue, _) -> Brick.halt
+        Just (ButtonNewGame, _) -> Brick.halt
+        Just (ButtonLoad, _) -> undefined -- TODO: load game screen
+        Just (ButtonQuit, _) -> Brick.halt
+
     appHandleEvent (VtyEvent e) = do
-
-      -- Handle dialog movement events, skipping unselectable buttons
-      s <- Brick.get
-
-      dl' <- nestEventM' (selectableButtonsOnly $ _mainMenuDialog s) (handleDialogEvent e)
-      let mn = getDialogFocus dl'
-      zoom mainMenuDialog $ traverse_ (Brick.modify . setDialogFocus) mn
-
-      -- Handle Enter key press
-      case e of
-        EvKey KEnter _ -> do
-          sel <- dialogSelection . _mainMenuDialog <$> Brick.get
-          case sel of
-            Nothing -> pure ()
-            Just (_, Unselectable) -> pure ()
-            -- exit command to be interpreted by BrickExitClock
-            Just (ButtonContinue, _) -> Brick.halt
-            Just (ButtonNewGame, _) -> Brick.halt
-            Just (ButtonLoad, _) -> undefined -- TODO: load game screen
-            Just (ButtonQuit, _) -> Brick.halt
-        _ -> pure ()
+      zoom mainMenuDialog $ handleDialogEventSelectable e
 
     appHandleEvent (AppEvent v) = absurd v
     appHandleEvent (MouseDown {}) = pure ()
