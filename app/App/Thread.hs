@@ -69,7 +69,10 @@ newBrickThread appThread theapp initialState = do
   brickBChan <- liftIO $ newBChan brickBChanSize
   vty' <- liftIO $ readIORef (vty appThread)
   (rk, brickAsync) <- allocate
-    (async $ customMainWithVty vty' (rebuildVty appThread) (Just brickBChan) theapp initialState)
+    do
+      a <- async $ customMainWithVty vty' (rebuildVty appThread) (Just brickBChan) theapp initialState
+      link a
+      pure a
     uninterruptibleCancel
   pure BrickThread{..}
 
