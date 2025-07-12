@@ -15,6 +15,7 @@ import Control.Monad.IO.Class
 import FRP.Rhine
 import Data.Void
 import Data.Time
+import Control.Monad
 
 type role AppThread nominal
 -- | ST trick to force each app thread to be a distinct type
@@ -27,15 +28,27 @@ withAppThread :: (forall s. AppThread s -> IO a) -> IO a
 withAppThread f = do
   bracket
     do
-      vty1 <- mkVty defaultConfig
+      vty1 <- ourMkVty
       vty <- newIORef vty1
+
       let rebuildVty = do
-            v <- mkVty defaultConfig
+            v <- ourMkVty
             writeIORef vty v
             pure v
+
       pure AppThread {..}
     (\AppThread{..} -> readIORef vty >>= shutdown)
     f
+  where
+    ourMkVty = do
+      v <- mkVty defaultConfig
+
+      -- Enable bracketed paste
+      let output = outputIface v
+      when (supportsMode output BracketedPaste) $
+        setMode output BracketedPaste True
+
+      pure v
 
 -- | Minimal BChan size since we assume events will be pushed at exactly the
 -- rate Brick can handle them or less (e.g. the events are game states to be
