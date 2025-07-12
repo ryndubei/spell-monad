@@ -30,6 +30,16 @@ data DisplayClock s = forall st. DisplayClock (BrickThread st SimState s)
 
 instance MonadIO m => Clock m (DisplayClock s) where
   type Time (DisplayClock s) = UTCTime
+  {-
+  This is a TQueue, which allows for an unbounded number of elements, seemingly
+  defeating the point of Brick's BChan. This may be worrying, until you notice
+  that the TQueue will only be populated once per tick, per running Rhine from
+  newGameUI, and flushed before the next tick.
+
+  The number of running Rhines is in turn bounded per running thread.
+  (Unless we do something stupid, this bound is 1)
+  (If the number of _threads_ is unbounded, then this is the least of our worries)
+  -}
   type Tag (DisplayClock s) = TQueue SimState
   initClock (DisplayClock th) = do
     t0 <- liftIO getCurrentTime
