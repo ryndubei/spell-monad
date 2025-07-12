@@ -43,6 +43,7 @@ withAppThread f = do
     ourMkVty = do
       v <- mkVty defaultConfig
 
+      -- TODO: possibly make this a settings option
       -- Enable bracketed paste
       let output = outputIface v
       when (supportsMode output BracketedPaste) $
