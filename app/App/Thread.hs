@@ -37,8 +37,11 @@ withAppThread f = do
     (\AppThread{..} -> readIORef vty >>= shutdown)
     f
 
+-- | Minimal BChan size since we assume events will be pushed at exactly the
+-- rate Brick can handle them or less (e.g. the events are game states to be
+-- drawn)
 brickBChanSize :: Int
-brickBChanSize = 64
+brickBChanSize = 1
 
 data BrickThread st e s = BrickThread
   { appThread :: !(AppThread s)
