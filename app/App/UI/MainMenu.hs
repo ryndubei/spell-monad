@@ -7,100 +7,132 @@ module App.UI.MainMenu (MenuExit(..), newMainMenu) where
 
 import App.Thread
 import FRP.Rhine
-import GameData
 import Control.Monad.Trans.Resource
 import Data.Void
 import Brick
 import Control.Monad.Schedule.Class
 import Brick.Widgets.Dialog
-import qualified Data.Text as T
 import Control.Lens (makeLenses)
 import Graphics.Vty
+import Brick.Focus
+import Data.Maybe
+import qualified Data.CircularList as CList
+import Control.Lens.Operators
+import Brick.Widgets.Center
+import Brick.Widgets.Border
+import Control.Exception
 
-data MenuExit = Quit | Load Level
+data MenuExit = Quit | NewGame
 
-newtype MainMenuState = MainMenuState
-  { _mainMenuDialog :: Dialog Selectability Name }
+data MainMenuState = MainMenuState
+  { _mainMenuFocusRing :: FocusRing Name
+  -- alternatively: could throw an exception with the exit reason and catch it in the main thread
+  , _mainMenuExit :: Maybe MenuExit
+  -- , savedGames :: [GameSave]
+  -- , lastPlayedLevel :: Maybe Level
+  }
 
-data Name = ButtonContinue | ButtonNewGame | ButtonLoad | ButtonQuit
-  deriving (Eq, Ord, Show)
-
-data Selectability = Selectable | Unselectable deriving (Eq, Show)
+data Name = ButtonContinue | ButtonLoad | ButtonNewGame | ButtonOptions | ButtonQuit
+  deriving (Eq, Ord, Show, Enum)
 
 makeLenses ''MainMenuState
+
+-- | Temporary: ButtonOptions will be selectable when options are implemented,
+-- Load will be selectable when there are saved games, and Continue will be
+-- selectable when there is a last-played saved game.
+unselectableButtons :: [Name]
+unselectableButtons = [ButtonContinue, ButtonLoad, ButtonOptions]
+
+unselectableAttr :: AttrName
+unselectableAttr = attrName "unselectable"
 
 mainMenuMaxWidth :: Int
 mainMenuMaxWidth = 60
 
-initialMainMenuState :: MainMenuState
-initialMainMenuState = MainMenuState { _mainMenuDialog }
-  where
-    _mainMenuDialog = dialog (Just title) (Just buttons) mainMenuMaxWidth
-
-    title = txt $ T.unlines
-      [ "HaskellQuest (working title)"
-      , "Version 0.1.0.0"
-      ]
-
-    buttons = (ButtonNewGame,
-      [ ("Continue", ButtonContinue, Unselectable)
-      , ("Load Game", ButtonLoad, Unselectable)
-      , ("New Game", ButtonNewGame, Selectable)
-      , ("Quit", ButtonQuit, Selectable)
-      ])
-
 newMainMenu :: forall s m. (MonadResource m, MonadSchedule m) => AppThread s -> m (Rhine (ExceptT MenuExit m) _ () ())
 newMainMenu th = do
-  bth <- newBrickThread th theapp initialMainMenuState
+  bth <- newBrickThread th theapp s0
   let cl :: HoistClock (ExceptT MainMenuState m) (ExceptT MenuExit m) (BrickExitClock MainMenuState s)
-      cl = HoistClock (BrickExitClock bth) (withExceptT getExit)
+      cl = HoistClock (BrickExitClock bth) (withExceptT (fromMaybe Quit . _mainMenuExit)) -- Default to Quit if no exit reason is set
   pure $ (arr id @@ Never) |@| (tagS @@ cl) @>>^ absurd
   where
-    getExit s = case getDialogFocus (_mainMenuDialog s) of
-      Nothing -> Quit
-      Just ButtonQuit -> Quit
-      Just ButtonNewGame -> Load (error "new game")
-      Just ButtonLoad -> Load (error "load")
-      Just ButtonContinue -> Load (error "continue")
+    s0 = MainMenuState
+      { -- TODO: initial focus should be set to Continue if available
+        _mainMenuFocusRing = focusSetCurrent ButtonNewGame $ focusRing [ButtonContinue, ButtonLoad, ButtonNewGame, ButtonOptions, ButtonQuit]
+      , _mainMenuExit = Nothing
+      }
 
--- | Handle a dialog event, ignoring unselectable buttons
-handleDialogEventSelectable :: Eq n => Event -> EventM n (Dialog Selectability n) ()
-handleDialogEventSelectable e = do
-  dl <- Brick.get
-  let foc = getDialogFocus dl
-      selectableButtons = filter (\(_, n, sel) -> sel == Selectable || Just n == foc) $ dialogButtons dl
-      tt = dialogTitle dl
-      wid = dialogWidth dl
-      dl' = dialog tt ((,selectableButtons) <$> foc) wid
-  mn <- getDialogFocus <$> nestEventM' dl' (handleDialogEvent e)
-  case mn of
-    Nothing -> pure ()
-    Just n -> modify (setDialogFocus n)
+data KeyMoveDirection = KeyPrev | KeyNext
 
 theapp :: App MainMenuState Void Name
 theapp = App {..}
   where
-    appDraw s = [ renderDialog (_mainMenuDialog s) emptyWidget ]
+    appDraw s =
+      pure . center . hLimit mainMenuMaxWidth $ (titleWidget <=> vBox (buttons s))
 
-    appHandleEvent (VtyEvent (EvKey KEnter _)) = do
-      sel <- dialogSelection . _mainMenuDialog <$> Brick.get
-      case sel of
-        Nothing -> pure ()
-        Just (_, Unselectable) -> pure ()
-        -- exit command to be interpreted by BrickExitClock
-        Just (ButtonContinue, _) -> Brick.halt
-        Just (ButtonNewGame, _) -> Brick.halt
-        Just (ButtonLoad, _) -> undefined -- TODO: load game screen
-        Just (ButtonQuit, _) -> Brick.halt
+    titleWidget = hCenter (str "HaskellQuest (working title)") <=> hCenter (str "Version 0.1.0.0")
+    buttons s =
+      let sel = focusGetCurrent $ _mainMenuFocusRing s
+          btn l = border $ hCenter (str l)
+          bts = [(ButtonContinue, "Continue"), (ButtonLoad, "Load Game"), (ButtonNewGame, "New Game"), (ButtonOptions, "Options"), (ButtonQuit, "Quit")]
+          -- Create widgets for each button
+          bts' = map (second btn) bts
+          -- Apply attrs
+          bts'' = flip map bts' $ \(n, w) ->
+            let nSelected = Just n == sel
+                nUnselectable = n `elem` unselectableButtons
+                att = (if nSelected then buttonSelectedAttr else buttonAttr) <> (if nUnselectable then unselectableAttr else mempty)
+             in withAttr att w
+       in bts''
 
-    appHandleEvent (VtyEvent e) = do
-      zoom mainMenuDialog $ handleDialogEventSelectable e
+    appAttrMap _ = attrMap defAttr
+      [ (buttonSelectedAttr, style standout)
+      , (buttonAttr <> unselectableAttr, style dim)
+      , (buttonSelectedAttr <> unselectableAttr, style dim `withStyle` standout)
+      ]
+
+    appHandleEvent (VtyEvent e)
+      | isForceExitEvent e = liftIO $ throwIO UserInterrupt -- Honor Ctrl-C
+      | Just dir <- moveDir e = do
+          fr <- gets _mainMenuFocusRing
+          -- Filtered focus ring that removes buttons which cannot be selected
+          let fr' = focusRingModify (CList.filterR (`notElem` unselectableButtons)) fr
+              sel = focusGetCurrent $ case dir of
+                KeyPrev -> focusPrev fr'
+                KeyNext -> focusNext fr'
+          case sel of
+            Nothing -> pure ()
+            Just sel' -> modify (mainMenuFocusRing %~ focusSetCurrent sel')
+      | isSelectEvent e = do
+          sel <- gets (focusGetCurrent . _mainMenuFocusRing)
+          case sel of
+            Nothing -> pure ()
+            Just ButtonContinue -> pure () -- TODO
+            Just ButtonNewGame -> do
+              modify (mainMenuExit ?~ NewGame)
+              Brick.halt
+            Just ButtonLoad -> pure () -- TODO
+            Just ButtonQuit -> do
+              modify (mainMenuExit ?~ Quit)
+              Brick.halt
+            Just ButtonOptions -> pure () -- TODO
+      | otherwise = pure ()
 
     appHandleEvent (AppEvent v) = absurd v
     appHandleEvent (MouseDown {}) = pure ()
     appHandleEvent (MouseUp {}) = pure ()
 
-    appAttrMap _ = attrMap defAttr [ (buttonSelectedAttr, defAttr `withStyle` standout)]
+    isSelectEvent (EvKey KEnter _) = True
+    isSelectEvent _ = False
+
+    moveDir (EvKey KUp _) = Just KeyPrev
+    moveDir (EvKey KDown _) = Just KeyNext
+    moveDir (EvKey KBackTab _) = Just KeyPrev
+    moveDir (EvKey (KChar '\t') _) = Just KeyNext
+    moveDir _ = Nothing
+
+    isForceExitEvent (EvKey (KChar 'c') [MCtrl]) = True
+    isForceExitEvent _ = False
 
     appChooseCursor = neverShowCursor
 

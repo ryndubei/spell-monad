@@ -31,7 +31,7 @@ mainAutomaton th = A.forever do
   me <- mainMenuAutomaton th
   l <- case me of
     Quit -> liftIO exitSuccess
-    Load l' -> pure l'
+    NewGame -> pure undefined
   ge <- gameAutomaton th l
   case ge of
     ExitDesktop -> liftIO exitSuccess
