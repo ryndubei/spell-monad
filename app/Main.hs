@@ -38,6 +38,7 @@ mainAutomaton th = A.forever do
     ExitMainMenu -> pure ()
 
 mainMenuAutomaton :: (MonadUnliftIO m, MonadSchedule m) => AppThread s -> A.AutomatonExcept () () m MenuExit
+-- TODO: runResourceT is not a monad morphism, should make it top level
 mainMenuAutomaton th = hoist runResourceT do
   rh <- lift $ newMainMenu th
   aut <- lift . runExceptT . fmap (rmap (const ())) $ eraseClock rh
