@@ -55,6 +55,7 @@ executable spell-monad-exe
                     , automaton
                     , brick
                     , bytestring
+                    , containers
                     , data-clist
                     , free
                     , resourcet

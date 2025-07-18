@@ -1,9 +1,11 @@
+{-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE RoleAnnotations #-}
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE BlockArguments #-}
 {-# LANGUAGE PartialTypeSignatures #-}
 {-# LANGUAGE TypeAbstractions #-}
 {-# OPTIONS_GHC -Wno-partial-type-signatures #-}
+{-# LANGUAGE RecordWildCards #-}
 module App.UI.GameScreen (newGameUI, GameExit(..), SymmContT(..)) where
 
 import Control.Monad.IO.Class
@@ -22,8 +24,24 @@ import Control.Monad.Trans.Resource
 import Control.Monad.Trans.Cont
 import Control.Concurrent.STM (flushTQueue, check)
 import Data.Foldable (traverse_)
+import Data.Maybe
+import Control.Lens (makeLenses)
+import Data.Text
+import Data.Sequence (Seq)
+import Brick.Widgets.Dialog
+
+data Name = ExitDialogButtonYes | ExitDialogButtonNo deriving (Eq, Ord, Show)
+
+data AppState = AppState
+  { _gameExit :: Maybe GameExit
+  , _consoleVisible :: Bool
+  , _consoleHistory :: Seq Text
+  , _exitDialog :: Maybe (Dialog () Name)
+  }
 
 data GameExit = ExitDesktop | ExitMainMenu
+
+makeLenses ''AppState
 
 type role DisplayClock nominal
 data DisplayClock s = forall st. DisplayClock (BrickThread st SimState s)
@@ -70,14 +88,6 @@ instance GetClockProxy (DisplayClock s)
 -- 
 -- instance GetClockProxy (UserInputClock s)
 
-newtype AppState = AppState
-  { exitCategory :: GameExit -- ^ Where to go if the app exits now
-  }
-
-initialAppState :: AppState
-initialAppState = AppState
-  { exitCategory = ExitMainMenu }
-
 inClSF :: MonadIO m => ClSF (ExceptT GameExit m) (DisplayClock s) SimState ()
 inClSF = proc s -> do
   tq <- tagS -< ()
@@ -98,13 +108,33 @@ newtype SymmContT m a = SymmContT { unSymmCont :: ContT a m a }
 
 newGameUI :: forall s m. (MonadResource m, MonadSchedule m) => AppThread s -> m (ReleaseKey, Rhine (ExceptT GameExit m) _ SimState UserInput)
 newGameUI th = do
-  (rk, bth) <- newBrickThread th theapp initialAppState
+  (rk, bth) <- newBrickThread th theapp s0
   let rh = inClSF @@ DisplayClock bth >-- trivialResamplingBuffer --> (tagS >>> arr absurd) @@ Never
       -- clock makes the Rhine throw GameExit when appropriate
       cl :: HoistClock (ExceptT AppState m) (ExceptT GameExit m) (BrickExitClock AppState s)
-      cl = HoistClock (BrickExitClock bth) (withExceptT exitCategory)
+      cl = HoistClock (BrickExitClock bth) (withExceptT (fromMaybe ExitMainMenu . _gameExit))
       rh' = rh |@| (tagS @@ cl) @>>^ absurd
   pure (rk, rh')
+  where
+    s0 = undefined
 
-theapp :: App AppState SimState ()
-theapp = undefined
+theapp :: App AppState SimState Name
+theapp = App {..}
+  where
+    appDraw s = [ gameWindow s
+                , if _consoleVisible s
+                    then consoleWindow (_consoleHistory s)
+                    else emptyWidget
+                , maybe emptyWidget (`renderDialog` emptyWidget) (_exitDialog s)
+                ]
+
+    gameWindow _ = emptyWidget
+    consoleWindow = undefined
+
+    appAttrMap = undefined
+
+    appHandleEvent = undefined
+
+    appChooseCursor = undefined
+
+    appStartEvent = undefined
