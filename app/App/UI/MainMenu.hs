@@ -11,7 +11,6 @@ import Control.Monad.Trans.Resource
 import Data.Void
 import Brick
 import Control.Monad.Schedule.Class
-import Brick.Widgets.Dialog
 import Control.Lens (makeLenses)
 import Graphics.Vty
 import Brick.Focus
@@ -42,6 +41,12 @@ makeLenses ''MainMenuState
 -- selectable when there is a last-played saved game.
 unselectableButtons :: [Name]
 unselectableButtons = [ButtonContinue, ButtonLoad, ButtonOptions]
+
+buttonAttr :: AttrName
+buttonAttr = attrName "button"
+
+selectedAttr :: AttrName
+selectedAttr = attrName "selected"
 
 unselectableAttr :: AttrName
 unselectableAttr = attrName "unselectable"
@@ -81,14 +86,14 @@ theapp = App {..}
           bts'' = flip map bts' $ \(n, w) ->
             let nSelected = Just n == sel
                 nUnselectable = n `elem` unselectableButtons
-                att = (if nSelected then buttonSelectedAttr else buttonAttr) <> (if nUnselectable then unselectableAttr else mempty)
+                att = buttonAttr <> (if nSelected then selectedAttr else mempty) <> (if nUnselectable then unselectableAttr else mempty)
              in withAttr att w
        in bts''
 
     appAttrMap _ = attrMap defAttr
-      [ (buttonSelectedAttr, style standout)
+      [ (buttonAttr <> selectedAttr, style standout)
       , (buttonAttr <> unselectableAttr, style dim)
-      , (buttonSelectedAttr <> unselectableAttr, style dim `withStyle` standout)
+      , (buttonAttr <> selectedAttr <> unselectableAttr, style dim `withStyle` standout)
       ]
 
     appHandleEvent (VtyEvent e)
