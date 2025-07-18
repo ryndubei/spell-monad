@@ -30,12 +30,16 @@ import Data.Text
 import Data.Sequence (Seq)
 import Brick.Widgets.Dialog
 
-data Name = ExitDialogButtonYes | ExitDialogButtonNo deriving (Eq, Ord, Show)
+data Name = ExitDialogButtonYes | ExitDialogButtonNo | GameViewport
+  deriving (Eq, Ord, Show)
 
 data AppState = AppState
   { _gameExit :: Maybe GameExit
   , _consoleVisible :: Bool
   , _consoleHistory :: Seq Text
+  , _consoleCurrentInput :: Text -- terrible asymptotics, but should only be a problem in case of falling asleep at the keyboard
+  , _consoleCursorPosition :: Maybe Int -- Nothing - no line input currently allowed (e.g. something is running) 
+  , _consoleHasFocus :: Bool
   , _exitDialog :: Maybe (Dialog () Name)
   }
 
@@ -128,7 +132,7 @@ theapp = App {..}
                 , maybe emptyWidget (`renderDialog` emptyWidget) (_exitDialog s)
                 ]
 
-    gameWindow _ = emptyWidget
+    gameWindow _ = viewport GameViewport Both emptyWidget
     consoleWindow = undefined
 
     appAttrMap = undefined

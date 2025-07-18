@@ -60,6 +60,7 @@ executable spell-monad-exe
                     , free
                     , resourcet
                     , rhine
+                    , haskeline
                     , hint
                     , lens
                     , logging-effect
@@ -71,6 +72,7 @@ executable spell-monad-exe
                     , stm
                     , text
                     , time
+                    , unix
                     , unliftio
                     , vector-sized
                     , vty
