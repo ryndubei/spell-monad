@@ -49,12 +49,12 @@ unselectableAttr = attrName "unselectable"
 mainMenuMaxWidth :: Int
 mainMenuMaxWidth = 60
 
-newMainMenu :: forall s m. (MonadResource m, MonadSchedule m) => AppThread s -> m (Rhine (ExceptT MenuExit m) _ () ())
+newMainMenu :: forall s m. (MonadResource m, MonadSchedule m) => AppThread s -> m (ReleaseKey, Rhine (ExceptT MenuExit m) _ () ())
 newMainMenu th = do
-  bth <- newBrickThread th theapp s0
+  (rk, bth) <- newBrickThread th theapp s0
   let cl :: HoistClock (ExceptT MainMenuState m) (ExceptT MenuExit m) (BrickExitClock MainMenuState s)
       cl = HoistClock (BrickExitClock bth) (withExceptT (fromMaybe Quit . _mainMenuExit)) -- Default to Quit if no exit reason is set
-  pure $ (arr id @@ Never) |@| (tagS @@ cl) @>>^ absurd
+  pure . (rk, ) $ (arr id @@ Never) |@| (tagS @@ cl) @>>^ absurd
   where
     s0 = MainMenuState
       { -- TODO: initial focus should be set to Continue if available

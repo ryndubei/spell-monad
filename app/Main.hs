@@ -15,7 +15,6 @@ import System.Exit
 import Input
 import Simulation
 import UnliftIO
-import Control.Monad.Morph
 import Control.Monad.Schedule.Class
 import Orphans ()
 import Control.Monad.Trans.Resource
@@ -24,9 +23,9 @@ userInputBufferSize :: Num a => a
 userInputBufferSize = 64
 
 main :: IO ()
-main = withAppThread (A.reactimate . mainAutomaton)
+main = withAppThread (runResourceT . A.reactimate . mainAutomaton)
 
-mainAutomaton :: (MonadIO m, MonadUnliftIO m, MonadSchedule m) => AppThread s -> A.Automaton m () ()
+mainAutomaton :: (MonadUnliftIO m, MonadSchedule m, MonadResource m) => AppThread s -> A.Automaton m () ()
 mainAutomaton th = A.forever do
   me <- mainMenuAutomaton th
   l <- case me of
@@ -37,19 +36,22 @@ mainAutomaton th = A.forever do
     ExitDesktop -> liftIO exitSuccess
     ExitMainMenu -> pure ()
 
-mainMenuAutomaton :: (MonadUnliftIO m, MonadSchedule m) => AppThread s -> A.AutomatonExcept () () m MenuExit
--- TODO: runResourceT is not a monad morphism, should make it top level
-mainMenuAutomaton th = hoist runResourceT do
-  rh <- lift $ newMainMenu th
+mainMenuAutomaton :: (MonadUnliftIO m, MonadSchedule m, MonadResource m) => AppThread s -> A.AutomatonExcept () () m MenuExit
+mainMenuAutomaton th = do
+  (rk, rh) <- lift $ newMainMenu th
   aut <- lift . runExceptT . fmap (rmap (const ())) $ eraseClock rh
-  either pure A.try aut
+  me <- either pure A.try aut
+  lift $ release rk
+  pure me
 
-gameAutomaton :: (MonadUnliftIO m, MonadSchedule m) => AppThread s -> Level -> A.AutomatonExcept () () m GameExit
-gameAutomaton th level = hoist runResourceT do
-  gurh <- lift $ newGameUI th
+gameAutomaton :: (MonadUnliftIO m, MonadSchedule m, MonadResource m) => AppThread s -> Level -> A.AutomatonExcept () () m GameExit
+gameAutomaton th level = do
+  (rk, gurh) <- lift $ newGameUI th
   let rh = feedbackRhine rbSimToUI (arr snd ^>>@ gurh >-- rbUIToSim --> srh @>>^ arr ((),))
   aut <- lift . runExceptT . fmap (rmap (const ())) $ eraseClock rh
-  either pure A.try aut
+  ge <- either pure A.try aut
+  lift $ release rk
+  pure ge
   where
     srh = simRhine (initialSimState level)
     rbUIToSim :: MonadIO m => ResamplingBuffer m clUI clS UserInput (Maybe UserInput)

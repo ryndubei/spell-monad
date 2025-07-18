@@ -64,7 +64,7 @@ data BrickThread st e s = BrickThread
   , rk :: !ReleaseKey
   }
 
-newBrickThread :: (MonadResource m, Ord n) => AppThread s -> App st e n -> st -> m (BrickThread st e s)
+newBrickThread :: (MonadResource m, Ord n) => AppThread s -> App st e n -> st -> m (ReleaseKey, BrickThread st e s)
 newBrickThread appThread theapp initialState = do
   brickBChan <- liftIO $ newBChan brickBChanSize
   vty' <- liftIO $ readIORef (vty appThread)
@@ -74,7 +74,7 @@ newBrickThread appThread theapp initialState = do
       link a
       pure a
     uninterruptibleCancel
-  pure BrickThread{..}
+  pure (rk, BrickThread{..})
 
 data BrickExitClock st s = forall e. BrickExitClock (BrickThread st e s)
 

@@ -96,15 +96,15 @@ inClSF = proc s -> do
 
 newtype SymmContT m a = SymmContT { unSymmCont :: ContT a m a }
 
-newGameUI :: forall s m. (MonadResource m, MonadSchedule m) => AppThread s -> m (Rhine (ExceptT GameExit m) _ SimState UserInput)
+newGameUI :: forall s m. (MonadResource m, MonadSchedule m) => AppThread s -> m (ReleaseKey, Rhine (ExceptT GameExit m) _ SimState UserInput)
 newGameUI th = do
-  bth <- newBrickThread th theapp initialAppState
+  (rk, bth) <- newBrickThread th theapp initialAppState
   let rh = inClSF @@ DisplayClock bth >-- trivialResamplingBuffer --> (tagS >>> arr absurd) @@ Never
       -- clock makes the Rhine throw GameExit when appropriate
       cl :: HoistClock (ExceptT AppState m) (ExceptT GameExit m) (BrickExitClock AppState s)
       cl = HoistClock (BrickExitClock bth) (withExceptT exitCategory)
       rh' = rh |@| (tagS @@ cl) @>>^ absurd
-  pure rh'
+  pure (rk, rh')
 
 theapp :: App AppState SimState ()
 theapp = undefined
