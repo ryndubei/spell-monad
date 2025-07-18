@@ -97,7 +97,7 @@ theapp = App {..}
       ]
 
     appHandleEvent (VtyEvent e)
-      | isForceExitEvent e = liftIO $ throwIO UserInterrupt -- Honor Ctrl-C
+      | isForceExitEvent e = liftIO $ throwIO UserInterrupt -- Honour Ctrl-C
       | Just dir <- moveDir e = do
           fr <- gets _mainMenuFocusRing
           -- Filtered focus ring that removes buttons which cannot be selected
