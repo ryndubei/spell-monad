@@ -1,4 +1,6 @@
 packages:
     spell-monad.cabal
 
+allow-newer: hs-term-emulator-0.1.0.4:lens
+
 write-ghc-environment-files: always

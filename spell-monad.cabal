@@ -38,6 +38,8 @@ executable spell-monad-exe
     main-is:          Main.hs
     other-modules:    App.UI.MainMenu
                     , App.UI.GameScreen
+                    , App.UI.GameScreen.Haskeline
+                    , App.UI.GameScreen.TerminalEmulator
                     , App.Thread
                     , GameData
                     , Input
@@ -52,6 +54,7 @@ executable spell-monad-exe
     build-depends:    base
                     , spell-monad
                     , async
+                    , attoparsec
                     , automaton
                     , brick
                     , bytestring
@@ -69,6 +72,8 @@ executable spell-monad-exe
                     , mmorph
                     , profunctors
                     , transformers
+                    , hs-term-emulator
+                    , some
                     , stm
                     , text
                     , time
