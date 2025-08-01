@@ -28,12 +28,15 @@ main = withAppThread (runResourceT . A.reactimate . mainAutomaton)
 mainAutomaton :: (MonadUnliftIO m, MonadSchedule m, MonadResource m) => AppThread s -> A.Automaton m () ()
 mainAutomaton th = A.forever do
   me <- mainMenuAutomaton th
+  -- todo: proper crash screen
   l <- case me of
     Quit -> liftIO exitSuccess
+    App.UI.MainMenu.Crash str -> liftIO $ fail str
     NewGame -> pure undefined
   ge <- gameAutomaton th l
   case ge of
     ExitDesktop -> liftIO exitSuccess
+    App.UI.GameScreen.Crash str -> liftIO $ fail str
     ExitMainMenu -> pure ()
 
 mainMenuAutomaton :: (MonadUnliftIO m, MonadSchedule m, MonadResource m) => AppThread s -> A.AutomatonExcept () () m MenuExit

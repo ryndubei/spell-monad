@@ -78,16 +78,23 @@ newBrickThread appThread theapp initialState = do
 
 data BrickExitClock st s = forall e. BrickExitClock (BrickThread st e s)
 
-instance MonadIO m => Clock (ExceptT st m) (BrickExitClock st s) where
+instance MonadIO m => Clock (ExceptT (Either SomeException st) m) (BrickExitClock st s) where
   type Time (BrickExitClock st s) = UTCTime
   type Tag (BrickExitClock st s) = Void
   initClock (BrickExitClock bth) = do
     t0 <- liftIO getCurrentTime
     let rcl = constM do
-          (s, v) <- liftIO $ wait (brickAsync bth)
-          liftIO $ writeIORef (vty $ appThread bth) v
-          release (rk bth)
-          throwE s
+          esv <- liftIO . Control.Exception.try $ wait (brickAsync bth)
+          case esv of
+            Right (s,v) -> do
+              liftIO $ writeIORef (vty $ appThread bth) v
+              release (rk bth)
+              throwE (Right s)
+            Left e -> do
+              v <- liftIO $ rebuildVty (appThread bth)
+              liftIO $ writeIORef (vty $ appThread bth) v 
+              release (rk bth)
+              throwE (Left e)
     pure (rcl, t0)
 
 instance GetClockProxy (BrickExitClock st s)

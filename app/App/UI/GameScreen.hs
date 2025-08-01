@@ -43,7 +43,7 @@ data AppState = AppState
   , _exitDialog :: Maybe (Dialog () Name)
   }
 
-data GameExit = ExitDesktop | ExitMainMenu
+data GameExit = ExitDesktop | ExitMainMenu | Crash String
 
 makeLenses ''AppState
 
@@ -115,8 +115,10 @@ newGameUI th = do
   (rk, bth) <- newBrickThread th theapp s0
   let rh = inClSF @@ DisplayClock bth >-- trivialResamplingBuffer --> (tagS >>> arr absurd) @@ Never
       -- clock makes the Rhine throw GameExit when appropriate
-      cl :: HoistClock (ExceptT AppState m) (ExceptT GameExit m) (BrickExitClock AppState s)
-      cl = HoistClock (BrickExitClock bth) (withExceptT (fromMaybe ExitMainMenu . _gameExit))
+      cl :: HoistClock (ExceptT (Either SomeException AppState) m) (ExceptT GameExit m) (BrickExitClock AppState s)
+      cl = HoistClock (BrickExitClock bth) $ withExceptT \case
+        Right st -> fromMaybe (Crash "No reason given for game exit") $ _gameExit st
+        Left e -> Crash (displayException e)
       rh' = rh |@| (tagS @@ cl) @>>^ absurd
   pure (rk, rh')
   where

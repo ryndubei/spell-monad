@@ -21,7 +21,7 @@ import Brick.Widgets.Center
 import Brick.Widgets.Border
 import Control.Exception
 
-data MenuExit = Quit | NewGame
+data MenuExit = Quit | NewGame | Crash String
 
 data MainMenuState = MainMenuState
   { _mainMenuFocusRing :: FocusRing Name
@@ -57,8 +57,10 @@ mainMenuMaxWidth = 60
 newMainMenu :: forall s m. (MonadResource m, MonadSchedule m) => AppThread s -> m (ReleaseKey, Rhine (ExceptT MenuExit m) _ () ())
 newMainMenu th = do
   (rk, bth) <- newBrickThread th theapp s0
-  let cl :: HoistClock (ExceptT MainMenuState m) (ExceptT MenuExit m) (BrickExitClock MainMenuState s)
-      cl = HoistClock (BrickExitClock bth) (withExceptT (fromMaybe Quit . _mainMenuExit)) -- Default to Quit if no exit reason is set
+  let cl :: HoistClock (ExceptT (Either SomeException MainMenuState) m) (ExceptT MenuExit m) (BrickExitClock MainMenuState s)
+      cl = HoistClock (BrickExitClock bth) $ withExceptT
+        (either (Crash . displayException)
+        (fromMaybe (Crash "no main menu exit reason set") . _mainMenuExit))
   pure . (rk, ) $ (arr id @@ Never) |@| (tagS @@ cl) @>>^ absurd
   where
     s0 = MainMenuState
