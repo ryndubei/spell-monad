@@ -6,7 +6,6 @@
 {-# LANGUAGE TypeAbstractions #-}
 {-# OPTIONS_GHC -Wno-partial-type-signatures #-}
 {-# LANGUAGE RecordWildCards #-}
-module App.UI.GameScreen (newGameUI, GameExit(..), SymmContT(..)) where
 
 import Control.Monad.IO.Class
 import App.Thread
@@ -21,8 +20,6 @@ import UnliftIO
 import Brick
 import Control.Monad.Schedule.Class (MonadSchedule)
 import Control.Monad.Trans.Resource
-import Control.Monad.Trans.Cont
-import Control.Concurrent.STM (flushTQueue, check)
 import Data.Foldable (traverse_)
 import Data.Maybe
 import Control.Lens (makeLenses)
@@ -107,8 +104,6 @@ inClSF = proc s -> do
   )
   -}
   arrMCl (\(tc, s) -> atomically $ writeTQueue tc s) -< (tq, s)
-
-newtype SymmContT m a = SymmContT { unSymmCont :: ContT a m a }
 
 newGameUI :: forall s m. (MonadResource m, MonadSchedule m) => AppThread s -> m (ReleaseKey, Rhine (ExceptT GameExit m) _ SimState UserInput)
 newGameUI th = do
