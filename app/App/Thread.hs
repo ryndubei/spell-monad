@@ -21,6 +21,7 @@ import Control.Concurrent.STM (check, STM)
 import qualified Data.Automaton.Trans.Except as A
 import UnliftIO.STM (atomically)
 import Control.Concurrent.STM.TQueue
+import Data.Profunctor
 
 type role AppThread nominal
 -- | ST trick to force each app thread to be a distinct type
@@ -62,9 +63,9 @@ withAppThread f = do
 brickBChanSize :: Int
 brickBChanSize = 1
 
-data BrickThread st e s = BrickThread
+data BrickThread s e st = forall e1. BrickThread
   { appThread :: !(AppThread s)
-  , brickBChan :: !(BChan e)
+  , brickBChan :: !(BChan e1)
   , brickAsync :: !(Async (st, Vty))
   , rk :: !ReleaseKey
   {- | This is a TQueue, which allows for an unbounded number of elements, seemingly
@@ -73,10 +74,19 @@ data BrickThread st e s = BrickThread
   number of writes per tick is bounded, then so is the number of elements in the
   queue.
   -}
-  , eventTQueue :: !(TQueue e)
+  , eventTQueue :: !(TQueue e1)
+  , eventMapper :: e -> e1
   }
 
-newBrickThread :: (MonadResource m, Ord n) => AppThread s -> App st e n -> st -> m (ReleaseKey, BrickThread st e s)
+deriving instance Functor (BrickThread s e)
+
+instance Profunctor (BrickThread s) where
+  lmap f BrickThread{..} =
+    let eventMapper' = eventMapper . f 
+     in BrickThread{eventMapper = eventMapper', ..}
+  rmap = fmap
+
+newBrickThread :: (MonadResource m, Ord n) => AppThread s -> App st e n -> st -> m (ReleaseKey, BrickThread s e st)
 newBrickThread appThread theapp initialState = do
   brickBChan <- liftIO $ newBChan brickBChanSize
   vty' <- liftIO $ readIORef (vty appThread)
@@ -94,20 +104,21 @@ newBrickThread appThread theapp initialState = do
     \(a1, a2) -> do
       uninterruptibleCancel a2
       uninterruptibleCancel a1
+  let eventMapper = id
   pure (rk, BrickThread{..})
 
 -- | Clock ticks whenever Brick's event queue is empty.
-data DisplayClock e s = forall st. DisplayClock !(BrickThread st e s)
+data DisplayClock e s = forall st. DisplayClock !(BrickThread s e st)
 
 sendBrickEvent :: BrickThread st e s -> e -> STM ()
-sendBrickEvent bth = writeTQueue (eventTQueue bth)
+sendBrickEvent BrickThread{..} = writeTQueue eventTQueue . eventMapper
 
 instance MonadIO m => Clock m (DisplayClock e s) where
   type Time (DisplayClock e s) = UTCTime
   type Tag (DisplayClock e s) = ()
-  initClock (DisplayClock bth) = do
+  initClock (DisplayClock BrickThread{..}) = do
     t0 <- liftIO getCurrentTime
-    let tq = eventTQueue bth
+    let tq = eventTQueue
         rc = A.forever do
           -- complain about needing more display data once the TQueue is
           -- emptied by the writer thread
@@ -125,7 +136,7 @@ instance MonadIO m => Clock m (DisplayClock e s) where
 
 instance GetClockProxy (DisplayClock e s)
 
-data BrickExitClock st s = forall e. BrickExitClock (BrickThread st e s)
+data BrickExitClock st s = forall e. BrickExitClock (BrickThread s e st)
 
 instance MonadIO m => Clock (ExceptT (Either SomeException st) m) (BrickExitClock st s) where
   type Time (BrickExitClock st s) = UTCTime
