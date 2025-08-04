@@ -11,7 +11,9 @@ fromRadians r = Angle (r `mod'` (2*pi))
 
 data UserInput
   = ReplLine Text
-  | Move Angle
-  | Pause
-  | Unpause
-  | Point Angle Double
+  | Move
+      Bool -- ^ sprint
+      Angle -- ^ abstract joystick
+  | Jump
+  | TogglePause
+  | Interrupt

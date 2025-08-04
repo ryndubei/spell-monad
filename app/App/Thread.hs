@@ -2,7 +2,7 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE BlockArguments #-}
 {-# LANGUAGE ApplicativeDo #-}
-module App.Thread (AppThread, withAppThread, BrickThread, newBrickThread, BrickExitClock(..), DisplayClock(..), sendBrickEvent) where
+module App.Thread (AppThread(vty), withAppThread, BrickThread, newBrickThread, BrickExitClock(..), DisplayClock(..), sendBrickEvent) where
 
 import Graphics.Vty
 import Graphics.Vty.CrossPlatform
@@ -51,9 +51,9 @@ withAppThread f = do
 
       -- TODO: possibly make this a settings option
       -- Enable bracketed paste
-      let output = outputIface v
-      when (supportsMode output BracketedPaste) $
-        setMode output BracketedPaste True
+      -- let output = outputIface v
+      -- when (supportsMode output BracketedPaste) $
+      --   setMode output BracketedPaste True
 
       pure v
 
@@ -108,6 +108,7 @@ newBrickThread appThread theapp initialState = do
   pure (rk, BrickThread{..})
 
 -- | Clock ticks whenever Brick's event queue is empty.
+-- TODO next commit: DisplayClock s 
 data DisplayClock e s = forall st. DisplayClock !(BrickThread s e st)
 
 sendBrickEvent :: BrickThread st e s -> e -> STM ()

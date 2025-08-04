@@ -10,6 +10,9 @@ import Data.Bifunctor
 import Data.Automaton.Trans.Except
 import Control.Monad.Trans.Resource
 import UnliftIO (MonadUnliftIO(withRunInIO))
+import Data.Profunctor
+import FRP.Rhine (Rhine)
+import FRP.Rhine.Reactimation.Combinators
 
 instance (Monad m, MonadSchedule m) => MonadSchedule (Log.LoggingT msg m) where
   -- generalised newtype deriving and coerce both complain, so has to be done explicitly
@@ -27,3 +30,10 @@ instance (MonadUnliftIO m, MonadSchedule m) => MonadSchedule (ResourceT m) where
 
 instance MonadIO m => MonadIO (AutomatonExcept a b m) where
   liftIO = lift . liftIO
+
+instance Monad m => Functor (Rhine m cl a) where
+  fmap = flip (@>>^)
+
+instance Monad m => Profunctor (Rhine m cl) where
+  lmap = (^>>@)
+  rmap = fmap

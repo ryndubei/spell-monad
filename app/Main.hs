@@ -18,9 +18,7 @@ import UnliftIO
 import Control.Monad.Schedule.Class
 import Orphans ()
 import Control.Monad.Trans.Resource
-
-userInputBufferSize :: Num a => a
-userInputBufferSize = 64
+import App.UI.GameScreen.Haskeline
 
 main :: IO ()
 main = withAppThread (runResourceT . A.reactimate . mainAutomaton)
@@ -32,7 +30,7 @@ mainAutomaton th = A.forever do
   l <- case me of
     Quit -> liftIO exitSuccess
     App.UI.MainMenu.Crash str -> liftIO $ fail str
-    NewGame -> pure undefined
+    NewGame -> pure (Level SimState)
   ge <- gameAutomaton th l
   case ge of
     ExitDesktop -> liftIO exitSuccess
@@ -49,15 +47,19 @@ mainMenuAutomaton th = do
 
 gameAutomaton :: (MonadUnliftIO m, MonadSchedule m, MonadResource m) => AppThread s -> Level -> A.AutomatonExcept () () m GameExit
 gameAutomaton th level = do
-  (rk, gurh) <- lift $ newGameUI th
-  let rh = feedbackRhine rbSimToUI (arr snd ^>>@ gurh >-- rbUIToSim --> srh @>>^ arr ((),))
-  aut <- lift . runExceptT . fmap (rmap (const ())) $ eraseClock rh
-  ge <- either pure A.try aut
-  lift $ release rk
+  (rkHth, shth) <- lift newHaskelineThread
+  ge <- withSome shth $ \hth -> do
+    (rk2, gurh) <- lift $ newGameUI th hth
+    let rh = feedbackRhine rbSimToUI (arr (\(_, s) -> (s, Nothing)) ^>>@ gurh >-- rbUIToSim --> srh @>>^ arr ((),))
+    aut <- lift . runExceptT . fmap (rmap (const ())) $ eraseClock rh
+    ge' <- either pure A.try aut
+    lift $ release rk2
+    pure ge'
+  release rkHth
   pure ge
   where
     srh = simRhine (initialSimState level)
     rbUIToSim :: MonadIO m => ResamplingBuffer m clUI clS UserInput (Maybe UserInput)
-    rbUIToSim = fifoBounded userInputBufferSize
+    rbUIToSim = fifoUnbounded -- unbounded because it would be bad to lose any REPL input lines
     rbSimToUI :: MonadIO m => ResamplingBuffer m clS clUI SimState SimState
     rbSimToUI = keepLast (initialSimState level)

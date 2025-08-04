@@ -79,6 +79,7 @@ executable spell-monad-exe
                     , time
                     , unix
                     , unliftio
+                    , vector
                     , vector-sized
                     , vty
                     , vty-crossplatform
