@@ -39,6 +39,10 @@ import Control.Monad.Trans.Class
 import Data.Char
 import Control.Applicative
 import Brick.Widgets.Border (border)
+import Brick.Widgets.Center (hCenterLayer)
+import LogClock
+import Data.Text (Text)
+import qualified Data.Text as T
 
 data Name
   = ExitDialogButtonYes
@@ -74,17 +78,17 @@ neverOut
   -> Rhine m (cl `SeqClock` Never) a b
 neverOut rh = rh >-- trivialResamplingBuffer --> (tagS >>> arr absurd) @@ Never
 
-inClSF :: MonadIO m => BrickThread s SimState st -> ClSF m (DisplayClock SimState s) SimState ()
+inClSF :: MonadIO m => BrickThread s SimState st -> ClSF m cl SimState ()
 -- Despite the `atomically`, presume this to be non-blocking
 -- If this takes enough time to not be non-blocking, we have more pressing
 -- things to worry about than clock accuracy
 inClSF bth = arrMCl (atomically . sendBrickEvent bth)
 
-displayRhine :: MonadIO m => BrickThread s SimState AppState -> Rhine m _ SimState UserInput
-displayRhine bth = neverOut $ inClSF bth @@ DisplayClock bth
+displayRhine :: forall m s. (MonadIO m, MonadLog (LogMessage Text) m) => BrickThread s SimState AppState -> Rhine m _ SimState UserInput
+displayRhine bth = neverOut $ inClSF bth @@ logClockDebug @m "DisplayClock-displayRhine" (DisplayClock bth) (const mempty)
 
-userLineRhine :: MonadIO m => HaskelineThread t -> Rhine m (Never `SeqClock` HaskelineThreadLineClock t) a UserInput
-userLineRhine hth = neverIn $ (tagS >>> arr ReplLine) @@ HaskelineThreadLineClock hth
+userLineRhine :: forall m t a. (MonadIO m, MonadLog (LogMessage Text) m) => HaskelineThread t -> Rhine m (Never `SeqClock` _) a UserInput
+userLineRhine hth = neverIn $ (tagS >>> arr ReplLine) @@ logClockDebug @m "HaskelineThreadLineClock" (HaskelineThreadLineClock hth) id
 
 data HaskelineInEvent
   = KP !KeyPress
@@ -92,7 +96,7 @@ data HaskelineInEvent
   | RR !ReplResult
 
 newGameUI
-  :: forall s m t. (MonadResource m, MonadSchedule m)
+  :: forall s m t. (MonadResource m, MonadSchedule m, MonadUnliftIO m, MonadLog (LogMessage Text) m)
   => AppThread s
   -> HaskelineThread t
   -> m (ReleaseKey, Rhine (ExceptT GameExit m) _ (SimState, Maybe ReplResult) UserInput)
@@ -102,14 +106,16 @@ newGameUI th hth = do
   -- terminal user input
   (appC :: Chan (Either UserInput HaskelineInEvent)) <- UnliftIO.newChan
 
+  (rk1, bth) <- newBrickThread th (theapp appC) s0
+
   let hClock = SelectClock (EventClock @(Either UserInput HaskelineInEvent)) (^? _Right)
       uClock :: HoistClock m (ExceptT GameExit m) (SelectClock (HoistClock _ m _) _)
       uClock = HoistClock (SelectClock (eventClockOn appC) (^? _Left)) lift
-
-  (rk1, bth) <- newBrickThread th (theapp appC) s0
+      dc :: forall m'. MonadLog (LogMessage Text) m' => LogClockH m' _
+      dc = logClockDebug "DisplayClock-hRh" (DisplayClock bth) (const mempty)
 
   -- TODO: interact with HaskelineThread inside App directly without a Rhine
-  let hRh :: Rhine _ _ () ()
+  let hRh :: forall m'. (MonadLog (LogMessage Text) m', MonadIO m', MonadSchedule m') => Rhine (EventChanT (Either UserInput HaskelineInEvent) m') _ () ()
       hRh = (tagS >>> arr \case
         Left v -> absurd v
         Right (KP kp) -> (Nothing, Just kp, Nothing)
@@ -118,11 +124,11 @@ newGameUI th hth = do
         -- TODO: own EventClock type that uses TBChan and is covariant
         ) ^->@ haskelineRhine hth hClock size0 >-- keepLast Seq.empty -->
         -- ensure bounded memory usage for BrickThread's queue by only writing terminal updates on DisplayClock ticks
-        arrM (UnliftIO.atomically . sendBrickEvent bth . Left) @@ DisplayClock bth
+        arrM (UnliftIO.atomically . sendBrickEvent bth . Left) @@ dc @(EventChanT (Either UserInput HaskelineInEvent) m')
 
   -- Thread for managing HaskelineThread
-  (rk2, _) <- allocate
-    (async . withChan appC $ flow_ hRh)
+  (rk2, _) <- withRunInIO $ \z -> z $ allocate
+    (async $ runLoggingT (withChan appC $ flow_ hRh) (liftIO . z . logMessage))
     uninterruptibleCancel
 
   -- combine rk1 and rk2
@@ -153,13 +159,13 @@ newGameUI th hth = do
                 -- no output, just throws a GameExit once possible
             |@| (exitRhine
                   -- direct user input
-              |@| neverIn (tagS @@ uClock)))
+              |@| neverIn (tagS @@ logClockDebug @(ExceptT GameExit m) "user input clock" uClock (T.pack . show))))
   pure (rk, rh)
   where
     size0 = (64, 16)
     s0 = AppState
       { _gameExit = Nothing
-      , _consoleFocus = ConsoleInvisible -- ConsoleFocused
+      , _consoleFocus = ConsoleFocused
       , _exitDialog = Nothing
       , _consoleDisplaySize = size0
       , _consoleLines = mempty
@@ -170,14 +176,14 @@ newGameUI th hth = do
 theapp :: Chan (Either UserInput HaskelineInEvent) -> App AppState (Either (Seq TermLine) SimState) Name
 theapp c = App {..}
   where
-    appDraw s = [ gameWindow s
-                , if s ^. consoleFocus == ConsoleInvisible then emptyWidget else padBottom Max $ consoleWindow s
-                , maybe emptyWidget (`renderDialog` emptyWidget) (_exitDialog s)
+    appDraw s = [ if s ^. consoleFocus == ConsoleInvisible then emptyWidget else consoleWindow s
+                , maybe (gameWindow s) (`renderDialog` gameWindow s) (s ^. exitDialog)
                 ]
 
-    gameWindow _ = viewport GameViewport Both (fill 'A')
+    gameWindow _ = viewport GameViewport Both (vLimit 100 $ hLimit 100 $ fill 'A')
     consoleWindow s
-      = border
+      = hCenterLayer
+      . border
       . vLimit (s ^. consoleDisplaySize . _2)
       . hLimit (s ^. consoleDisplaySize . _1 + 1 )
       . withVScrollBars OnRight

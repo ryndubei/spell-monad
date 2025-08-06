@@ -28,6 +28,9 @@ instance (MonadUnliftIO m, MonadSchedule m) => MonadSchedule (ResourceT m) where
     xs'' <- schedule xs'
     pure $ second (map liftIO) xs''
 
+instance MonadResource m => MonadResource (Log.LoggingT msg m) where
+  liftResourceT = lift . liftResourceT
+
 instance MonadIO m => MonadIO (AutomatonExcept a b m) where
   liftIO = lift . liftIO
 

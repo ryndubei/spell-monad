@@ -43,6 +43,7 @@ executable spell-monad-exe
                     , App.Thread
                     , GameData
                     , Input
+                    , LogClock
                     , Orphans
                     , Simulation
     hs-source-dirs:   app
@@ -60,6 +61,8 @@ executable spell-monad-exe
                     , bytestring
                     , containers
                     , data-clist
+                    , directory
+                    , filepath
                     , free
                     , resourcet
                     , rhine
@@ -70,12 +73,14 @@ executable spell-monad-exe
                     , monad-schedule
                     , mtl
                     , mmorph
+                    , prettyprinter
                     , profunctors
                     , transformers
                     , hs-term-emulator
                     , some
                     , stm
                     , text
+                    , text-show
                     , time
                     , unix
                     , unliftio

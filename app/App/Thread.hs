@@ -17,11 +17,10 @@ import FRP.Rhine
 import Data.Void
 import Data.Time
 import Control.Monad
-import Control.Concurrent.STM (check, STM)
-import qualified Data.Automaton.Trans.Except as A
-import UnliftIO.STM (atomically)
 import Control.Concurrent.STM.TQueue
 import Data.Profunctor
+import Data.Foldable
+import Control.Concurrent.STM
 
 type role AppThread nominal
 -- | ST trick to force each app thread to be a distinct type
@@ -75,6 +74,7 @@ data BrickThread s e st = forall e1. BrickThread
   queue.
   -}
   , eventTQueue :: !(TQueue e1)
+  , queueEmptiedTag :: !(TMVar ())
   , eventMapper :: e -> e1
   }
 
@@ -91,14 +91,23 @@ newBrickThread appThread theapp initialState = do
   brickBChan <- liftIO $ newBChan brickBChanSize
   vty' <- liftIO $ readIORef (vty appThread)
   eventTQueue <- liftIO newTQueueIO 
+  queueEmptiedTag <- liftIO newEmptyTMVarIO
   (rk, (brickAsync, _)) <- allocate
     do
       a1 <- async $ customMainWithVty vty' (rebuildVty appThread) (Just brickBChan) theapp initialState
-      link a1
       -- queue-to-BChan writer thread
       a2 <- async $ Control.Monad.forever do
-        e <- atomically $ readTQueue eventTQueue
-        writeBChan brickBChan e
+        es <- atomically $ flushTQueue eventTQueue
+        traverse_ (writeBChan brickBChan) es
+        -- ask for more input
+        atomically $ putTMVar queueEmptiedTag ()
+        atomically do
+          -- wait until there is input
+          b <- isEmptyTQueue eventTQueue
+          check (not b)
+          -- stop asking for more input
+          _ <- tryTakeTMVar queueEmptiedTag
+          pure ()
       link a2
       pure (a1, a2)
     \(a1, a2) -> do
@@ -119,20 +128,11 @@ instance MonadIO m => Clock m (DisplayClock e s) where
   type Tag (DisplayClock e s) = ()
   initClock (DisplayClock BrickThread{..}) = do
     t0 <- liftIO getCurrentTime
-    let tq = eventTQueue
-        rc = A.forever do
-          -- complain about needing more display data once the TQueue is
-          -- emptied by the writer thread
-          A.step $ const do
-            atomically do
-              b <- isEmptyTQueue tq
-              check b
-            t <- liftIO getCurrentTime
-            pure ((t, ()), ())
-          -- block until the queue is written to
-          A.once_ . liftIO $ atomically do
-            b <- isEmptyTQueue tq
-            check (not b)
+    let rc = constM do
+          -- wait until writer thread asks for more
+          liftIO . atomically $ readTMVar queueEmptiedTag
+          t <- liftIO getCurrentTime
+          pure (t, ())
     pure (rc, t0)
 
 instance GetClockProxy (DisplayClock e s)

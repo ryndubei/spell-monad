@@ -17,3 +17,4 @@ data UserInput
   | Jump
   | TogglePause
   | Interrupt
+  deriving Show

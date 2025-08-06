@@ -2,6 +2,7 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE RoleAnnotations #-}
 {-# LANGUAGE PartialTypeSignatures #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# OPTIONS_GHC -Wno-partial-type-signatures #-}
 {-# LANGUAGE LambdaCase #-}
 -- | Module that runs haskeline in a separate POSIX process by necessity
@@ -10,7 +11,7 @@
 -- Breaks windows compatibility, so should be replaced at some point
 module App.UI.GameScreen.Haskeline
   ( module Some
-  , HaskelineThread(interactHandle, responseHandle, linesHandle)
+  , HaskelineThread(interactHandleR, interactHandleW, responseHandle, linesHandle)
   , newHaskelineThread
   , haskelineRhine
   , HaskelineThreadExitClock(..)
@@ -48,10 +49,13 @@ import qualified Data.ByteString as B
 import App.UI.GameScreen.TerminalEmulator
 import Data.Word
 import qualified Data.Automaton.Trans.Except as A
-import Control.Concurrent
 import Orphans ()
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Lazy as LB
+import Control.Monad.Trans.Class
+import Control.Exception (finally, bracket)
+import LogClock
+import TextShow
 
 -- maybe
 -- foreign import capi "pty.h/login_tty" a :: CInt -> IO ()
@@ -66,7 +70,8 @@ import qualified Data.ByteString.Lazy as LB
 -- - input lines as interpreted by Haskeline will be sent to userLinesHandle
 data HaskelineThread s = HaskelineThread
   { linesHandle :: !Handle -- ^ read
-  , interactHandle :: !Handle -- ^ read (terminal output)/write (kb)
+  , interactHandleR :: !Handle -- ^ read (terminal output)
+  , interactHandleW :: !Handle -- ^ write (kb)
   , responseHandle :: !Handle -- ^ write
   , pid :: !ProcessID
   }
@@ -94,17 +99,18 @@ newtype HaskelineThreadOutputClock s = HaskelineThreadOutputClock (HaskelineThre
 instance MonadIO m => Clock m (HaskelineThreadOutputClock s) where
   type Time (HaskelineThreadOutputClock s) = UTCTime
   type Tag (HaskelineThreadOutputClock s) = Word8
-  initClock (HaskelineThreadOutputClock HaskelineThread{interactHandle}) = do
+  initClock (HaskelineThreadOutputClock HaskelineThread{interactHandleR}) = do
     t0 <- liftIO getCurrentTime
     let rc = safely do
           A.try $ constM do
-            bs <- liftIO $ B.hGetSome interactHandle 1
+            bs <- liftIO $ B.hGetSome interactHandleR 1
             case B.uncons bs of
               Nothing -> throwE ()
               Just (c, _) -> do
                 t <- liftIO getCurrentTime
                 pure (t, c)
-          liftIO . Control.Monad.forever $ threadDelay (10 ^ (9 :: Int))
+          c <- fmap fst . lift $ initClock Never
+          A.safe (c >>> arr (absurd . snd))
     pure (rc, t0)
 
 instance GetClockProxy (HaskelineThreadOutputClock s)
@@ -128,34 +134,45 @@ newHaskelineThread :: MonadResource m => m (ReleaseKey, Some HaskelineThread)
 newHaskelineThread =
   allocate
     do
-      (ma, sl) <- openPseudoTerminal
       -- (read/write relative to this thread)
       (responseR, responseW) <- createPipe
       (linesR, linesW) <- createPipe
-      pid <- forkProcess do
-        void $ sl `dupTo` stdInput
-        void $ sl `dupTo` stdOutput
-        void $ sl `dupTo` stdError
-        closeFd responseW
-        closeFd linesR
-        closeFd sl
-        closeFd ma
-        setEnv "TERM" "xterm" True
-        responseRH <- fdToHandle responseR
-        linesWH <- fdToHandle linesW
-        runInputTBehaviorWithPrefs preferTerm defaultPrefs defaultSettings (haskelineProgram responseRH linesWH)
+      (interactR, interactR') <- createPipe
+      (interactW', interactW) <- createPipe
+      pid <- forkProcessWithUnmask \u -> do
+        finally
+          do u do
+              void $ interactW' `dupTo` stdInput
+              void $ interactR' `dupTo` stdOutput
+              void $ interactR' `dupTo` stdError
+              closeFd responseW
+              closeFd linesR
+              closeFd interactR
+              closeFd interactW
+              setEnv "TERM" "xterm" True
+              responseRH <- fdToHandle responseR
+              linesWH <- fdToHandle linesW
+              -- TODO: provide proper environment for terminal-style interaction to work
+              runInputTBehaviorWithPrefs defaultBehavior defaultPrefs defaultSettings (haskelineProgram responseRH linesWH)
+          do
+            closeFd interactW'
+            closeFd interactR'
       closeFd responseR
       closeFd linesW
-      closeFd sl
-      interactHandle <- fdToHandle ma
+      closeFd interactR'
+      closeFd interactW'
+      interactHandleR <- fdToHandle interactR
+      interactHandleW <- fdToHandle interactW
       responseHandle <- fdToHandle responseW
       linesHandle <- fdToHandle linesR
       pure $ Some HaskelineThread {..}
-    \(Some HaskelineThread{..}) -> do
-      hClose linesHandle
-      hClose responseHandle
-      hClose interactHandle
-      signalProcess sigTERM pid
+    \case
+      (Some HaskelineThread{..}) -> do
+        hClose linesHandle
+        hClose responseHandle
+        hClose interactHandleR
+        hClose interactHandleW
+        signalProcess sigTERM pid
 
 haskelineProgram
   :: Handle -- ^ response read handle
@@ -166,7 +183,14 @@ haskelineProgram responseRH linesWH = Control.Monad.forever do
   case minput of
     Nothing -> pure ()
     Just input -> do
+      liftIO $ bracket
+        (createFile "foo" regularFileMode)
+        closeFd
+        \fd -> do
+          h <- fdToHandle fd
+          hPutStrLn h input
       liftIO $ hPutStrLn linesWH input
+      outputStr "Aaaaaaaa"
       -- | Print input from response handle until the first NUL character
       fix \k -> do
         c <- liftIO $ hGetChar responseRH
@@ -178,7 +202,7 @@ haskelineProgram responseRH linesWH = Control.Monad.forever do
 
 haskelineRhine
   :: forall m cl s.
-     (MonadIO m, MonadSchedule m, Clock m cl, cl ~ Out cl, cl ~ In cl, Time cl ~ UTCTime, GetClockProxy cl)
+     (MonadIO m, MonadSchedule m, MonadLog (LogMessage Text) m, Clock m cl, cl ~ Out cl, cl ~ In cl, Time cl ~ UTCTime, GetClockProxy cl)
   => HaskelineThread s
   -> cl -- ^ synchronous input clock of user's choice
   -> (Int, Int) -- ^ initial terminal size
@@ -195,12 +219,14 @@ haskelineRhine hth cl size0 = rh
       let (processOut, replResult, keyPress, newSize) = case x of
             Left w -> (Just w, Nothing, Nothing, Nothing)
             Right (rr, kp, ns) -> (Nothing, rr, kp, ns)
-      (termLines, processIn) <- terminalEmulator size0 -< (keyPress, maybe LB.empty LB.singleton processOut, newSize) 
+      (termLines, processIn) <- terminalEmulator size0 -< (keyPress, maybe LB.empty LB.singleton processOut, newSize)
       arrM (maybe (pure ()) (liftIO . consumeReplResult hth)) -< replResult
       arrM (liftIO . consumeProcessIn hth) -< processIn
       returnA -< termLines
     -- Using Never so that it does not take input
-    rhProcessOut = (tagS @@ Never) @>>^ absurd >-- trivialResamplingBuffer --> tagS @@ HaskelineThreadOutputClock hth
+    rhProcessOut = (tagS @@ Never) @>>^ absurd
+      >-- trivialResamplingBuffer
+      --> tagS @@ logClockDebug @m "HaskelineThreadOutputClock" (HaskelineThreadOutputClock hth) showt
 
 data ReplResult
   = ReplUnblock Text -- ^ if repl is currently blocked on response
@@ -209,9 +235,9 @@ data ReplResult
   | ReplStatus Text -- ^ give incremental output to the user without unblocking
 
 consumeReplResult :: HaskelineThread t -> ReplResult -> IO ()
-consumeReplResult hth = T.hPutStr (responseHandle hth) . \case
+consumeReplResult HaskelineThread{responseHandle} = T.hPutStr responseHandle . \case
   ReplUnblock t -> T.filter (/= '\NUL') t `T.snoc` '\NUL'
   ReplStatus t -> T.filter (/= '\NUL') t
 
 consumeProcessIn :: HaskelineThread t -> ByteString -> IO ()
-consumeProcessIn hth = B.hPut (interactHandle hth)
+consumeProcessIn HaskelineThread{interactHandleW} = B.hPut interactHandleW
