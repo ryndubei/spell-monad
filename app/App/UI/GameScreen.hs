@@ -65,8 +65,8 @@ inClSF :: MonadIO m => BrickThread s SimState st -> ClSF m cl SimState ()
 -- things to worry about than clock accuracy
 inClSF bth = arrMCl (atomically . sendBrickEvent bth)
 
-displayRhine :: forall m s. (MonadIO m, MonadLog (LogMessage Text) m) => BrickThread s SimState AppState -> Rhine m _ SimState UserInput
-displayRhine bth = neverOut $ inClSF bth @@ logClockDebug @m "DisplayClock-displayRhine" (DisplayClock bth) (const mempty)
+displayRhine :: forall m s. MonadIO m => BrickThread s SimState AppState -> Rhine m _ SimState UserInput
+displayRhine bth = neverOut $ inClSF bth @@ DisplayClock bth
 
 newGameUI
   :: forall s m. (MonadResource m, MonadSchedule m, MonadUnliftIO m, MonadLog (LogMessage Text) m)
