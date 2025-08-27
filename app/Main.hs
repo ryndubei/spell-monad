@@ -17,7 +17,6 @@ import Simulation
 import Control.Monad.Schedule.Class
 import Orphans ()
 import Control.Monad.Trans.Resource
-import App.UI.GameScreen.Haskeline
 import GHC.Stack
 import Data.Text (Text)
 import LogClock
@@ -40,7 +39,7 @@ main = do
   catch (removeFile logLatestPath) (\e -> unless (isDoesNotExistError e) $ throwIO e)
   withFile logPath WriteMode $ \h -> do
     createFileLink logPath logLatestPath
-    withFDHandler defaultBatchingOptions h 80 80 $ \fh -> 
+    withFDHandler defaultBatchingOptions h 80 80 $ \fh ->
       withAppThread (runResourceT . (`runLoggingT` (liftIO . fh . logRenderer)) . A.reactimate . mainAutomaton)
   where
     logRenderer =
@@ -70,15 +69,11 @@ mainMenuAutomaton th = do
 
 gameAutomaton :: (HasCallStack, MonadUnliftIO m, MonadSchedule m, MonadResource m, MonadLog (LogMessage Text) m) => AppThread s -> Level -> A.AutomatonExcept () () m GameExit
 gameAutomaton th level = do
-  (rkHth, shth) <- lift newHaskelineThread
-  ge <- withSome shth $ \hth -> do
-    (rk2, gurh) <- lift $ newGameUI th hth
-    let rh = feedbackRhine rbSimToUI (arr (\(_, s) -> (s, Nothing)) ^>>@ gurh >-- rbUIToSim --> srh @>>^ arr ((),))
-    aut <- lift . runExceptT . fmap (rmap (const ())) $ eraseClock rh
-    ge' <- either pure A.try aut
-    lift $ release rk2
-    pure ge'
-  release rkHth
+  (rk2, gurh) <- lift $ newGameUI th
+  let rh = feedbackRhine rbSimToUI (arr snd ^>>@ gurh >-- rbUIToSim --> srh @>>^ arr ((),))
+  aut <- lift . runExceptT . fmap (rmap (const ())) $ eraseClock rh
+  ge <- either pure A.try aut
+  lift $ release rk2
   pure ge
   where
     srh = simRhine (initialSimState level)

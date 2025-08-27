@@ -38,8 +38,6 @@ executable spell-monad-exe
     main-is:          Main.hs
     other-modules:    App.UI.MainMenu
                     , App.UI.GameScreen
-                    , App.UI.GameScreen.Haskeline
-                    , App.UI.GameScreen.TerminalEmulator
                     , App.Thread
                     , GameData
                     , Input
@@ -76,13 +74,11 @@ executable spell-monad-exe
                     , prettyprinter
                     , profunctors
                     , transformers
-                    , hs-term-emulator
                     , some
                     , stm
                     , text
                     , text-show
                     , time
-                    , unix
                     , unliftio
                     , vector
                     , vector-sized
