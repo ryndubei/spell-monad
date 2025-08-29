@@ -117,14 +117,14 @@ theapp c = App {..}
     appStartEvent = pure ()
 
 directInput :: Key -> [Modifier] -> Maybe UserInput
-directInput KUp m = Just $ Move (MShift `elem` m) (fromRadians 0)
-directInput KUpRight m = Just $ Move (MShift `elem` m) (fromRadians (pi / 4))
-directInput KRight m = Just $ Move (MShift `elem` m) (fromRadians (pi / 2))
-directInput KDownRight m = Just $ Move (MShift `elem` m) (fromRadians (3 * pi / 4))
-directInput KDown m = Just $ Move (MShift `elem` m) (fromRadians pi)
-directInput KDownLeft m = Just $ Move (MShift `elem` m) (fromRadians (5 * pi / 4))
-directInput KLeft m = Just $ Move (MShift `elem` m) (fromRadians (3 * pi / 2))
-directInput KUpLeft m = Just $ Move (MShift `elem` m) (fromRadians (7 * pi / 4))
-directInput (KChar ' ') _ = Just Jump
-directInput KEsc _ = Just TogglePause
+directInput KUp _ = Just $ mempty { moveY = 1 }
+directInput KUpRight _ = Just mempty { moveX = 1 / sqrt 2, moveY = 1 / sqrt 2}
+directInput KRight _ = Just mempty { moveX = 1 }
+directInput KDownRight _ = Just mempty { moveX = 1 / sqrt 2, moveY = -(1 / sqrt 2)}
+directInput KDown _ = Just mempty { moveY = -1 }
+directInput KDownLeft _ = Just mempty { moveX = -(1 / sqrt 2), moveY = -(1 / sqrt 2)}
+directInput KLeft _ = Just mempty { moveX = -1 }
+directInput KUpLeft _ = Just mempty { moveX = -(1 / sqrt 2), moveY = 1 / sqrt 2}
+directInput (KChar ' ') _ = Just mempty { jump = True }
+directInput KEsc _ = Just mempty { togglePause = True }
 directInput _ _ = Nothing

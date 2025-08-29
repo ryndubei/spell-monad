@@ -67,6 +67,7 @@ executable spell-monad-exe
                     , haskeline
                     , hint
                     , lens
+                    , linear
                     , logging-effect
                     , monad-schedule
                     , mtl

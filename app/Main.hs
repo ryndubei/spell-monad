@@ -77,7 +77,7 @@ gameAutomaton th level = do
   pure ge
   where
     srh = simRhine (initialSimState level)
-    rbUIToSim :: MonadIO m => ResamplingBuffer m clUI clS UserInput (Maybe UserInput)
-    rbUIToSim = fifoUnbounded -- unbounded because it would be bad to lose any REPL input lines
+    rbUIToSim :: MonadIO m => ResamplingBuffer m clUI clS UserInput UserInput
+    rbUIToSim = foldBuffer (<>) mempty
     rbSimToUI :: MonadIO m => ResamplingBuffer m clS clUI SimState SimState
     rbSimToUI = keepLast (initialSimState level)
