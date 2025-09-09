@@ -41,7 +41,6 @@ executable spell-monad-exe
                     , App.Thread
                     , GameData
                     , Input
-                    , LogClock
                     , Orphans
                     , Simulation
     hs-source-dirs:   app

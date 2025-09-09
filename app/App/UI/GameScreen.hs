@@ -27,9 +27,6 @@ import Brick.Widgets.Dialog
 import Data.Foldable (traverse_)
 import Control.Lens.Operators
 import Graphics.Vty (defAttr, Event (..), Key (..), Modifier (..))
-import LogClock
-import Data.Text (Text)
-import qualified Data.Text as T
 
 data Name
   = ExitDialogButtonYes
@@ -69,7 +66,7 @@ displayRhine :: forall m s. MonadIO m => BrickThread s SimState AppState -> Rhin
 displayRhine bth = neverOut $ inClSF bth @@ DisplayClock bth
 
 newGameUI
-  :: forall s m. (MonadResource m, MonadSchedule m, MonadUnliftIO m, MonadLog (LogMessage Text) m)
+  :: forall s m. (MonadResource m, MonadSchedule m, MonadUnliftIO m)
   => AppThread s
   -> m (ReleaseKey, Rhine (ExceptT GameExit m) _ SimState UserInput)
 newGameUI th = do
@@ -89,7 +86,7 @@ newGameUI th = do
           (Crash . displayException @SomeException)
           (fromMaybe (Crash "No reason given for game exit") . _gameExit))
       exitRhine = neverIn $ (tagS @@ cl1) @>>^ absurd
-      userInputRhine = neverIn (tagS @@ logClockDebug @(ExceptT GameExit m) "user input clock" uClock (T.pack . show))
+      userInputRhine = neverIn (tagS @@ uClock)
       rh = displayRhine bth |@| (exitRhine |@| userInputRhine)
   pure (rk, rh)
   where

@@ -18,34 +18,11 @@ import Control.Monad.Schedule.Class
 import Orphans ()
 import Control.Monad.Trans.Resource
 import GHC.Stack
-import Data.Text (Text)
-import LogClock
-import System.FilePath
-import System.Directory
-import Data.Time
-import Prettyprinter
-import System.IO
-import Control.Exception
-import System.IO.Error
-import Control.Monad
 
 main :: HasCallStack => IO ()
-main = do
-  t0 <- getCurrentTime
-  logDir <- getXdgDirectory XdgCache ("spell-monad" </> "logs")
-  createDirectoryIfMissing True logDir
-  let logPath = logDir </> "spell-monad-log" ++ show t0 <.> "txt"
-      logLatestPath = logDir </> "spell-monad-log-latest" <.> "txt"
-  catch (removeFile logLatestPath) (\e -> unless (isDoesNotExistError e) $ throwIO e)
-  withFile logPath WriteMode $ \h -> do
-    createFileLink logPath logLatestPath
-    withFDHandler defaultBatchingOptions h 80 80 $ \fh ->
-      withAppThread (runResourceT . (`runLoggingT` (liftIO . fh . logRenderer)) . A.reactimate . mainAutomaton)
-  where
-    logRenderer =
-      renderWithTimestamp show $ renderWithSeverity $ \(name, msg) -> hsep [brackets (pretty name), pretty msg]
+main = withAppThread (runResourceT . (A.reactimate . mainAutomaton))
 
-mainAutomaton :: (HasCallStack, MonadUnliftIO m, MonadSchedule m, MonadResource m, MonadLog (LogMessage Text) m) => AppThread s -> A.Automaton m () ()
+mainAutomaton :: (HasCallStack, MonadUnliftIO m, MonadSchedule m, MonadResource m) => AppThread s -> A.Automaton m () ()
 mainAutomaton th = A.forever do
   me <- mainMenuAutomaton th
   -- todo: proper crash screen
@@ -67,7 +44,7 @@ mainMenuAutomaton th = do
   lift $ release rk
   pure me
 
-gameAutomaton :: (HasCallStack, MonadUnliftIO m, MonadSchedule m, MonadResource m, MonadLog (LogMessage Text) m) => AppThread s -> Level -> A.AutomatonExcept () () m GameExit
+gameAutomaton :: (HasCallStack, MonadUnliftIO m, MonadSchedule m, MonadResource m) => AppThread s -> Level -> A.AutomatonExcept () () m GameExit
 gameAutomaton th level = do
   (rk2, gurh) <- lift $ newGameUI th
   let rh = feedbackRhine rbSimToUI (arr snd ^>>@ gurh >-- rbUIToSim --> srh @>>^ arr ((),))
