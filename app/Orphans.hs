@@ -14,17 +14,22 @@ import FRP.Rhine (Rhine)
 import FRP.Rhine.Reactimation.Combinators
 
 instance (MonadUnliftIO m, MonadSchedule m) => MonadSchedule (ResourceT m) where
+  {-# INLINE schedule #-}
   schedule xs = withRunInIO \z -> do
     let xs' = fmap z xs
     xs'' <- schedule xs'
     pure $ second (map liftIO) xs''
 
 instance MonadIO m => MonadIO (AutomatonExcept a b m) where
+  {-# INLINE liftIO #-}
   liftIO = lift . liftIO
 
 instance Monad m => Functor (Rhine m cl a) where
+  {-# INLINE fmap #-}
   fmap = flip (@>>^)
 
 instance Monad m => Profunctor (Rhine m cl) where
+  {-# INLINE lmap #-}
   lmap = (^>>@)
+  {-# INLINE rmap #-}
   rmap = fmap
