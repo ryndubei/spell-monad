@@ -66,9 +66,9 @@ displayRhine :: forall m s. MonadIO m => BrickThread s SimState AppState -> Rhin
 displayRhine bth = neverOut $ inClSF bth @@ DisplayClock bth
 
 newGameUI
-  :: forall s m. (MonadResource m, MonadSchedule m, MonadUnliftIO m)
+  :: forall s m. (MonadSchedule m, MonadIO m)
   => AppThread s
-  -> m (ReleaseKey, Rhine (ExceptT GameExit m) _ SimState UserInput)
+  -> ResourceT m (ReleaseKey, Rhine (ExceptT GameExit m) _ SimState UserInput)
 newGameUI th = do
   -- Output event channel to pass to the app
   -- Unbounded memory usage, but it's expected: we don't want to

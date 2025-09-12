@@ -54,7 +54,7 @@ unselectableAttr = attrName "unselectable"
 mainMenuMaxWidth :: Int
 mainMenuMaxWidth = 60
 
-newMainMenu :: forall s m. (MonadResource m, MonadSchedule m) => AppThread s -> m (ReleaseKey, Rhine (ExceptT MenuExit m) _ () ())
+newMainMenu :: forall s m. (MonadSchedule m, MonadIO m) => AppThread s -> ResourceT m (ReleaseKey, Rhine (ExceptT MenuExit m) _ () ())
 newMainMenu th = do
   (rk, bth) <- newBrickThread th theapp s0
   let cl :: HoistClock (ExceptT (Either SomeException MainMenuState) m) (ExceptT MenuExit m) (BrickExitClock MainMenuState s)
