@@ -1,26 +1,22 @@
-{-# LANGUAGE PartialTypeSignatures #-}
 {-# LANGUAGE TemplateHaskell #-}
-{-# LANGUAGE OverloadedStrings #-}
-{-# OPTIONS_GHC -Wno-partial-type-signatures #-}
 {-# LANGUAGE RecordWildCards #-}
-{-# LANGUAGE BlockArguments #-}
 module App.UI.MainMenu (MenuExit(..), withMainMenu) where
 
 import App.Thread
-import FRP.Rhine
 import Data.Void
 import Brick
 import Control.Lens (makeLenses)
 import Graphics.Vty
 import Brick.Focus
-import Data.Maybe
 import qualified Data.CircularList as CList
 import Control.Lens.Operators
 import Brick.Widgets.Center
 import Brick.Widgets.Border
 import Control.Exception
+import Data.Bifunctor
+import Control.Monad.IO.Class
 
-data MenuExit = Quit | NewGame | Crash String
+data MenuExit = Quit | NewGame
 
 data MainMenuState = MainMenuState
   { _mainMenuFocusRing :: FocusRing Name
@@ -53,13 +49,8 @@ unselectableAttr = attrName "unselectable"
 mainMenuMaxWidth :: Int
 mainMenuMaxWidth = 60
 
-withMainMenu :: forall s m a. MonadIO m => AppThread s -> (Rhine (ExceptT MenuExit m) _ () () -> IO a) -> IO a
-withMainMenu th k = withBrickThread th theapp s0 \bth -> do
-  let cl :: HoistClock (ExceptT (Either SomeException MainMenuState) m) (ExceptT MenuExit m) (BrickExitClock MainMenuState s)
-      cl = HoistClock (BrickExitClock bth) $ withExceptT
-        (either (Crash . displayException)
-        (fromMaybe (Crash "no main menu exit reason set") . _mainMenuExit))
-  k $ (arr id @@ Never) |@| (tagS @@ cl) @>>^ absurd
+withMainMenu :: AppThread -> (BrickThread Void (Maybe MenuExit) -> IO a) -> IO a
+withMainMenu th k = withBrickThread th theapp s0 $ k . fmap (^. mainMenuExit)
   where
     s0 = MainMenuState
       { -- TODO: initial focus should be set to Continue if available

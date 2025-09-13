@@ -41,7 +41,6 @@ executable spell-monad-exe
                     , App.Thread
                     , GameData
                     , Input
-                    , Orphans
                     , Simulation
     hs-source-dirs:   app
     default-extensions:
@@ -52,18 +51,15 @@ executable spell-monad-exe
     build-depends:    base
                     , spell-monad
                     , async
-                    , attoparsec
-                    , automaton
+                    , bearriver ^>= 0.15
                     , brick
                     , bytestring
                     , containers
                     , data-clist
                     , directory
+                    , dunai
                     , filepath
                     , free
-                    , resourcet
-                    , rhine
-                    , haskeline
                     , hint
                     , lens
                     , linear

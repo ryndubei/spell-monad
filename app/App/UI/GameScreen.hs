@@ -1,26 +1,14 @@
 {-# LANGUAGE TemplateHaskell #-}
-{-# LANGUAGE RoleAnnotations #-}
-{-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE BlockArguments #-}
-{-# LANGUAGE PartialTypeSignatures #-}
-{-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE TypeAbstractions #-}
-{-# OPTIONS_GHC -Wno-partial-type-signatures #-}
 {-# LANGUAGE RecordWildCards #-}
-{-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE DerivingStrategies #-}
 module App.UI.GameScreen (withGameUI, GameExit(..)) where
 
 import Control.Monad.IO.Class
 import App.Thread
-import FRP.Rhine
 import Simulation
 import Input
-import Data.Void
 import UnliftIO
 import Brick
-import Control.Monad.Schedule.Class (MonadSchedule)
-import Data.Maybe
 import Control.Lens (makeLenses)
 import Brick.Widgets.Dialog
 import Data.Foldable (traverse_)
@@ -39,55 +27,19 @@ data AppState = AppState
   , _exitDialog :: !(Maybe (Dialog () Name))
   }
 
-data GameExit = ExitDesktop | ExitMainMenu | Crash String
+data GameExit = ExitDesktop | ExitMainMenu
 
 makeLenses ''AppState
 
-neverIn
-  :: (MonadIO m, Time (In cl) ~ UTCTime, Time cl ~ UTCTime, Clock m cl, Clock m (Out cl), Clock m (In cl), GetClockProxy cl)
-  => Rhine m cl () b
-  -> Rhine m (Never `SeqClock` cl) a b
-neverIn rh = (tagS >>> arr absurd) @@ Never >-- trivialResamplingBuffer --> rh
-
-neverOut
-  :: (MonadIO m, Time (Out cl) ~ UTCTime, Time cl ~ UTCTime, Clock m cl, Clock m (Out cl), Clock m (In cl), GetClockProxy cl)
-  => Rhine m cl a ()
-  -> Rhine m (cl `SeqClock` Never) a b
-neverOut rh = rh >-- trivialResamplingBuffer --> (tagS >>> arr absurd) @@ Never
-
-inClSF :: MonadIO m => BrickThread s SimState st -> ClSF m cl SimState ()
--- Despite the `atomically`, presume this to be non-blocking
--- If this takes enough time to not be non-blocking, we have more pressing
--- things to worry about than clock accuracy
-inClSF bth = arrMCl (atomically . sendBrickEvent bth)
-
-displayRhine :: forall m s. MonadIO m => BrickThread s SimState AppState -> Rhine m _ SimState UserInput
-displayRhine bth = neverOut $ inClSF bth @@ DisplayClock bth
-
-withGameUI
-  :: forall s m a. (MonadIO m, MonadSchedule m)
-  => AppThread s
-  -> (Rhine (ExceptT GameExit m) _ SimState UserInput -> IO a)
-  -> IO a
+withGameUI :: AppThread -> (BrickThread SimState (Maybe GameExit) -> TQueue UserInput -> IO a) -> IO a
 withGameUI th k = do
-  -- Output event channel to pass to the app
-  -- Unbounded memory usage, but it's expected: we don't want to
-  -- silently lose any user input (as opposed to explicitly via ResamplingBuffers)
-  (appC :: Chan UserInput) <- UnliftIO.newChan
+  -- Output event queue to pass to the app
+  -- Unbounded memory usage, but this is necessary:
+  -- we don't want to silently lose any user input
+  q <- newTQueueIO
 
-  let -- ignore the constant type annotations for the monad we are in, the compiler complains without them
-      uClock = eventClockOn @(ExceptT GameExit m) appC
-
-  withBrickThread th (theapp appC) s0 $ \bth -> do
-    let -- cl1 makes the Rhine throw GameExit when appropriate
-        cl1 = HoistClock (BrickExitClock bth) $ withExceptT @m
-          (either
-            (Crash . displayException @SomeException)
-            (fromMaybe (Crash "No reason given for game exit") . _gameExit))
-        exitRhine = neverIn $ (tagS @@ cl1) @>>^ absurd
-        userInputRhine = neverIn (tagS @@ uClock)
-        rh = displayRhine bth |@| (exitRhine |@| userInputRhine)
-    k rh
+  withBrickThread th (theapp q) s0 \bth -> k ((^. gameExit) <$> bth) q
+    
   where
     s0 = AppState
       { _gameExit = Nothing
@@ -95,8 +47,8 @@ withGameUI th k = do
       }
 
 
-theapp :: Chan UserInput -> App AppState SimState Name
-theapp c = App {..}
+theapp :: TQueue UserInput -> App AppState SimState Name
+theapp q = App {..}
   where
     appDraw s = [ maybe (gameWindow s) (`renderDialog` gameWindow s) (s ^. exitDialog) ]
 
@@ -104,7 +56,7 @@ theapp c = App {..}
 
     appAttrMap _ = attrMap defAttr []
 
-    appHandleEvent (VtyEvent (EvKey k m)) = traverse_ (liftIO . writeChan c) (directInput k m)
+    appHandleEvent (VtyEvent (EvKey k m)) = traverse_ (liftIO . atomically . writeTQueue q) (directInput k m)
 
     appHandleEvent _ = pure ()
 

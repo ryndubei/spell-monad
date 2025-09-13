@@ -1,47 +1,61 @@
-{-# LANGUAGE RoleAnnotations #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE BlockArguments #-}
 {-# LANGUAGE ApplicativeDo #-}
-module App.Thread (AppThread(vty), withAppThread, BrickThread, withBrickThread, BrickExitClock(..), DisplayClock(..), sendBrickEvent) where
+module App.Thread
+  ( AppThread
+  , withAppThread
+  , BrickThread
+  , withBrickThread
+  , sendBrickEvent
+  , isBrickQueueEmpty
+  , waitBrickThread
+  , SFThread
+  , sendSFThread
+  , takeSFThread
+  , withSFThread
+  , waitSFThread
+  ) where
 
-import Graphics.Vty
+import Graphics.Vty (defaultConfig, Vty(..))
 import Graphics.Vty.CrossPlatform
 import Control.Exception
-import Data.IORef
 import Brick.BChan
 import Control.Concurrent.Async
 import Brick
 import Control.Monad.IO.Class
-import FRP.Rhine
-import Data.Void
-import Data.Time
 import Control.Monad
 import Control.Concurrent.STM.TQueue
 import Data.Profunctor
-import Data.Foldable
 import Control.Concurrent.STM
+import Data.Bifunctor
+import FRP.Yampa
+import Data.Time
+import Control.Concurrent
+import Data.List.NonEmpty (NonEmpty)
+import qualified Data.List.NonEmpty as NE
 
-type role AppThread nominal
--- | ST trick to force each app thread to be a distinct type
-data AppThread s = AppThread
-  { vty :: !(IORef Vty)
+-- | Initialised terminal resources.
+data AppThread = AppThread
+  { vty :: !(TVar Vty)
   , rebuildVty :: !(IO Vty)
   }
 
-withAppThread :: (forall s. AppThread s -> IO a) -> IO a
+withAppThread :: (AppThread -> IO a) -> IO a
 withAppThread f = do
   bracket
     do
       vty1 <- ourMkVty
-      vty <- newIORef vty1
+      vty <- newTVarIO vty1
 
       let rebuildVty = do
             v <- ourMkVty
-            writeIORef vty v
+            -- update TVar with whichever is currently in use: useful in case
+            -- of a Brick thread crash
+            atomically $ writeTVar vty v
             pure v
 
       pure AppThread {..}
-    (\AppThread{..} -> readIORef vty >>= shutdown)
+    (\AppThread{..} -> readTVarIO vty >>= shutdown)
     f
   where
     ourMkVty = do
@@ -61,94 +75,153 @@ withAppThread f = do
 brickBChanSize :: Int
 brickBChanSize = 1
 
-data BrickThread s e st = forall e1. BrickThread
-  { appThread :: !(AppThread s)
+-- | AppThread running a particular Brick application
+data BrickThread e s = forall e1. BrickThread
+  { appThread :: AppThread
   , brickBChan :: !(BChan e1)
-  , brickAsync :: !(Async (st, Vty))
-  {- | This is a TQueue, which allows for an unbounded number of elements, seemingly
-  defeating the point of Brick's BChan. This may be worrying, but the TQueue will be
-  emptied before every subsequent tick of DisplayClock. As long as the
-  number of writes per tick is bounded, then so is the number of elements in the
-  queue.
-  -}
+  , brickAsync :: !(Async (s, Vty))
   , eventTQueue :: !(TQueue e1)
-  , queueEmptiedTag :: !(TMVar ())
   , eventMapper :: e -> e1
   }
 
-deriving instance Functor (BrickThread s e)
+deriving instance Functor (BrickThread e)
 
-instance Profunctor (BrickThread s) where
+instance Profunctor BrickThread where
   lmap f BrickThread{..} =
-    let eventMapper' = eventMapper . f 
+    let eventMapper' = eventMapper . f
      in BrickThread{eventMapper = eventMapper', ..}
   rmap = fmap
 
-withBrickThread :: Ord n => AppThread s -> App st e n -> st -> (BrickThread s e st -> IO a) -> IO a
+-- | Runs the passed Brick application on a separate thread, using resources initialised by
+-- AppThread. Does not guarantee that BrickThread will remain active for the entire continuation:
+-- use 'waitBrickThread' with 'race' to exit immediately when BrickThread terminates.
+withBrickThread :: Ord n => AppThread -> App s e n -> s -> (BrickThread e s -> IO a) -> IO a
 withBrickThread appThread theapp initialState k = do
   brickBChan <- liftIO $ newBChan brickBChanSize
-  vty' <- liftIO $ readIORef (vty appThread)
-  eventTQueue <- liftIO newTQueueIO 
-  queueEmptiedTag <- liftIO newEmptyTMVarIO
+  vty' <- liftIO $ readTVarIO (vty appThread)
+  eventTQueue <- liftIO newTQueueIO
   withAsync
     (customMainWithVty vty' (rebuildVty appThread) (Just brickBChan) theapp initialState)
     \brickAsync -> do
       withAsync
         do
           Control.Monad.forever do
-            es <- atomically $ flushTQueue eventTQueue
-            traverse_ (writeBChan brickBChan) es
-            -- ask for more input
-            atomically $ putTMVar queueEmptiedTag ()
-            atomically do
-              -- wait until there is input
-              b <- isEmptyTQueue eventTQueue
-              check (not b)
-              -- stop asking for more input
-              _ <- tryTakeTMVar queueEmptiedTag
-              pure ()
-        \_ -> do
-          let eventMapper = id
-          k BrickThread{..}
+            e <- atomically $ readTQueue eventTQueue
+            writeBChan brickBChan e
+        \_ -> k BrickThread{..}
+  where
+    eventMapper = id
 
--- | Clock ticks whenever Brick's event queue is empty.
--- TODO next commit: DisplayClock s 
-data DisplayClock e s = forall st. DisplayClock !(BrickThread s e st)
-
-sendBrickEvent :: BrickThread st e s -> e -> STM ()
+-- | This function does not retry, and BrickThread can queue an unbounded number
+-- of events 'e'. This may seem to defeat the point of Brick's BChan. To avoid a
+-- memory leak, sendBrickEvent should only be called when 'isBrickQueueEmpty' is True.
+sendBrickEvent :: BrickThread e s -> e -> STM ()
 sendBrickEvent BrickThread{..} = writeTQueue eventTQueue . eventMapper
 
-instance MonadIO m => Clock m (DisplayClock e s) where
-  type Time (DisplayClock e s) = UTCTime
-  type Tag (DisplayClock e s) = ()
-  initClock (DisplayClock BrickThread{..}) = do
-    t0 <- liftIO getCurrentTime
-    let rc = constM do
-          -- wait until writer thread asks for more
-          liftIO . atomically $ readTMVar queueEmptiedTag
-          t <- liftIO getCurrentTime
-          pure (t, ())
-    pure (rc, t0)
+isBrickQueueEmpty :: BrickThread e s -> STM Bool
+isBrickQueueEmpty BrickThread{eventTQueue} = isEmptyTQueue eventTQueue
 
-instance GetClockProxy (DisplayClock e s)
+-- | Retries until BrickThread exits.
+waitBrickThread :: BrickThread e s -> STM (Either SomeException s)
+waitBrickThread BrickThread{brickAsync} = Data.Bifunctor.second fst <$> waitCatchSTM brickAsync
 
-data BrickExitClock st s = forall e. BrickExitClock (BrickThread s e st)
+maxDelay :: Int
+maxDelay = 100 * 10^(3 :: Int) -- 100ms in microseconds
 
-instance MonadIO m => Clock (ExceptT (Either SomeException st) m) (BrickExitClock st s) where
-  type Time (BrickExitClock st s) = UTCTime
-  type Tag (BrickExitClock st s) = Void
-  initClock (BrickExitClock bth) = do
-    t0 <- liftIO getCurrentTime
-    let rcl = constM do
-          esv <- liftIO . Control.Exception.try $ wait (brickAsync bth)
-          case esv of
-            Right (s,v) -> do
-              liftIO $ writeIORef (vty $ appThread bth) v
-              throwE (Right s)
-            Left e -> do
-              v <- liftIO $ rebuildVty (appThread bth)
-              liftIO $ writeIORef (vty $ appThread bth) v 
-              throwE (Left e)
-    pure (rcl, t0)
+-- | Signal function thread with input 'u' and discardable output 's'.
+-- Only the last output is stored.
+data SFThread u s = forall s' u'. SFThread
+  { sfAsync :: !(Async ())
+  , lastOutput :: !(TMVar s')
+  , userInputs :: !(TQueue u')
+  , rmapperSFThread :: s' -> s
+  , lmapperSFThread :: u -> u'
+  , paused :: !(TMVar UTCTime)
+  , lastTime :: !(TVar UTCTime)
+  }
 
-instance GetClockProxy (BrickExitClock st s)
+deriving instance Functor (SFThread u)
+
+instance Profunctor SFThread where
+  rmap = fmap
+  lmap f SFThread{..} =
+    let lmapperGameThread' = lmapperSFThread . f
+     in SFThread{lmapperSFThread = lmapperGameThread', ..}
+
+-- | Non-retrying, sends input 'u' to the SFThread's queue.
+sendSFThread :: SFThread u s -> u -> STM ()
+sendSFThread SFThread{userInputs, lmapperSFThread} =
+  writeTQueue userInputs . lmapperSFThread
+
+-- | Retries until an output 's' is available from SFThread, then
+-- removes and returns 's'.
+takeSFThread :: SFThread u s -> STM s
+takeSFThread SFThread{lastOutput, rmapperSFThread} =
+  rmapperSFThread <$> takeTMVar lastOutput
+
+-- | Retries until the SFThread exits.
+waitSFThread :: SFThread u s -> STM (Maybe SomeException)
+waitSFThread SFThread{..} =
+  either Just (const Nothing) <$> waitCatchSTM sfAsync 
+
+-- | Run the passed signal function as an SFThread. Just like BrickThread, does
+-- not guarantee that the SFThread will be running for the entire continuation.
+withSFThread :: TQueue u -> SF (Event (NonEmpty u)) s -> (SFThread u s -> IO a) -> IO a
+withSFThread userInputs sf k = do
+  lastOutput <- newEmptyTMVarIO
+  paused <- newEmptyTMVarIO
+  lastTime <- getCurrentTime >>= newTVarIO 
+
+  let
+    sfThread = do
+      getCurrentTime >>= atomically . writeTVar lastTime
+      reactimate
+        (pure NoEvent)
+        (\b -> handlePause >> sense b)
+        actuate
+        sf
+
+    handlePause = do
+      p0 <- atomically $ tryReadTMVar paused
+      case p0 of
+        Just pauseTime -> do
+          -- Block until unpaused
+          atomically (isEmptyTMVar paused >>= check)
+
+          pauseDuration <- (`diffUTCTime` pauseTime) <$> getCurrentTime
+
+          -- Skip last timestamp forward by pauseDuration
+          atomically $ modifyTVar' lastTime (addUTCTime pauseDuration)
+        Nothing -> pure ()
+
+    sense block = do
+      -- User input event, if given
+      e <- if block
+        then do
+          -- block on waiting for user input for up to maxDelay microseconds
+          u <- either id id <$> race
+              (fmap Just . atomically $ (NE.:|) <$> readTQueue userInputs <*> flushTQueue userInputs)
+              (threadDelay maxDelay >> pure Nothing)
+          pure . Just $ maybeToEvent u
+        else do
+          us <- atomically . fmap NE.nonEmpty $ flushTQueue userInputs
+          pure . Just $ maybeToEvent us
+
+      t' <- getCurrentTime
+      dt <- atomically do
+        dt' <- realToFrac . diffUTCTime t' <$> readTVar lastTime
+        writeTVar lastTime t'
+        pure dt'
+      pure (dt, e)
+
+    actuate _ s = do
+      atomically $ writeTMVar lastOutput s
+      pure False
+
+  withAsync
+    sfThread
+    \sfAsync -> k SFThread{..}
+  where
+    rmapperSFThread = id
+    lmapperSFThread = id
+

@@ -1,10 +1,10 @@
-{-# LANGUAGE PartialTypeSignatures #-}
-module Simulation (SimState(..), simRhine) where
+module Simulation (SimState(..), simSF) where
 
-import FRP.Rhine
-import Input (UserInput)
+import FRP.BearRiver
+import Control.Monad.State.Strict
+import Input
 
 data SimState = SimState
 
-simRhine :: forall m. MonadIO m => SimState -> Rhine m _ UserInput SimState
-simRhine s0 = constMCl (pure SimState) @@ ioClock @m (waitClock :: Millisecond 50)
+simSF :: SF (State SimState) (Event UserInput) ()
+simSF = arr (const ()) -- TODO
