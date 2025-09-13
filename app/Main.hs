@@ -14,6 +14,7 @@ import Orphans ()
 import GHC.Stack
 import Control.Monad
 import Data.Void
+import Control.Monad.Schedule.FreeAsync
 
 main :: HasCallStack => IO ()
 main = withAppThread $ \th -> Control.Monad.forever do
@@ -30,11 +31,11 @@ main = withAppThread $ \th -> Control.Monad.forever do
     ExitMainMenu -> pure ()
 
 runMainMenu :: HasCallStack => AppThread s -> IO MenuExit
-runMainMenu th = withMainMenu th $ \rh ->
+runMainMenu th = withMainMenu th $ \rh -> runFreeAsyncT $
   fmap (either id absurd) . runExceptT $ flow rh
 
 runGame :: HasCallStack => AppThread s -> Level -> IO GameExit
-runGame th level = withGameUI th $ \gurh ->
+runGame th level = withGameUI th $ \gurh -> runFreeAsyncT $
   let rh = feedbackRhine rbSimToUI (arr snd ^>>@ gurh >-- rbUIToSim --> srh @>>^ arr ((),))
    in fmap (either id absurd) . runExceptT $ flow rh
   where
