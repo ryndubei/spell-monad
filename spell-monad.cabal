@@ -52,18 +52,15 @@ executable spell-monad-exe
     build-depends:    base
                     , spell-monad
                     , async
-                    , attoparsec
-                    , automaton
+                    , bearriver ^>= 0.15
                     , brick
                     , bytestring
                     , containers
                     , data-clist
                     , directory
+                    , dunai
                     , filepath
                     , free
-                    , resourcet
-                    , rhine
-                    , haskeline
                     , hint
                     , lens
                     , linear
