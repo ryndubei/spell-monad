@@ -2,7 +2,7 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE BlockArguments #-}
 {-# LANGUAGE ApplicativeDo #-}
-module App.Thread (AppThread(vty), withAppThread, BrickThread, newBrickThread, BrickExitClock(..), DisplayClock(..), sendBrickEvent) where
+module App.Thread (AppThread(vty), withAppThread, BrickThread, withBrickThread, BrickExitClock(..), DisplayClock(..), sendBrickEvent) where
 
 import Graphics.Vty
 import Graphics.Vty.CrossPlatform
@@ -10,7 +10,6 @@ import Control.Exception
 import Data.IORef
 import Brick.BChan
 import Control.Concurrent.Async
-import Control.Monad.Trans.Resource
 import Brick
 import Control.Monad.IO.Class
 import FRP.Rhine
@@ -66,7 +65,6 @@ data BrickThread s e st = forall e1. BrickThread
   { appThread :: !(AppThread s)
   , brickBChan :: !(BChan e1)
   , brickAsync :: !(Async (st, Vty))
-  , rk :: !ReleaseKey
   {- | This is a TQueue, which allows for an unbounded number of elements, seemingly
   defeating the point of Brick's BChan. This may be worrying, but the TQueue will be
   emptied before every subsequent tick of DisplayClock. As long as the
@@ -86,35 +84,32 @@ instance Profunctor (BrickThread s) where
      in BrickThread{eventMapper = eventMapper', ..}
   rmap = fmap
 
-newBrickThread :: (MonadResource m, Ord n) => AppThread s -> App st e n -> st -> m (ReleaseKey, BrickThread s e st)
-newBrickThread appThread theapp initialState = do
+withBrickThread :: Ord n => AppThread s -> App st e n -> st -> (BrickThread s e st -> IO a) -> IO a
+withBrickThread appThread theapp initialState k = do
   brickBChan <- liftIO $ newBChan brickBChanSize
   vty' <- liftIO $ readIORef (vty appThread)
   eventTQueue <- liftIO newTQueueIO 
   queueEmptiedTag <- liftIO newEmptyTMVarIO
-  (rk, (brickAsync, _)) <- allocate
-    do
-      a1 <- async $ customMainWithVty vty' (rebuildVty appThread) (Just brickBChan) theapp initialState
-      -- queue-to-BChan writer thread
-      a2 <- async $ Control.Monad.forever do
-        es <- atomically $ flushTQueue eventTQueue
-        traverse_ (writeBChan brickBChan) es
-        -- ask for more input
-        atomically $ putTMVar queueEmptiedTag ()
-        atomically do
-          -- wait until there is input
-          b <- isEmptyTQueue eventTQueue
-          check (not b)
-          -- stop asking for more input
-          _ <- tryTakeTMVar queueEmptiedTag
-          pure ()
-      link a2
-      pure (a1, a2)
-    \(a1, a2) -> do
-      uninterruptibleCancel a2
-      uninterruptibleCancel a1
-  let eventMapper = id
-  pure (rk, BrickThread{..})
+  withAsync
+    (customMainWithVty vty' (rebuildVty appThread) (Just brickBChan) theapp initialState)
+    \brickAsync -> do
+      withAsync
+        do
+          Control.Monad.forever do
+            es <- atomically $ flushTQueue eventTQueue
+            traverse_ (writeBChan brickBChan) es
+            -- ask for more input
+            atomically $ putTMVar queueEmptiedTag ()
+            atomically do
+              -- wait until there is input
+              b <- isEmptyTQueue eventTQueue
+              check (not b)
+              -- stop asking for more input
+              _ <- tryTakeTMVar queueEmptiedTag
+              pure ()
+        \_ -> do
+          let eventMapper = id
+          k BrickThread{..}
 
 -- | Clock ticks whenever Brick's event queue is empty.
 -- TODO next commit: DisplayClock s 
@@ -149,12 +144,10 @@ instance MonadIO m => Clock (ExceptT (Either SomeException st) m) (BrickExitCloc
           case esv of
             Right (s,v) -> do
               liftIO $ writeIORef (vty $ appThread bth) v
-              release (rk bth)
               throwE (Right s)
             Left e -> do
               v <- liftIO $ rebuildVty (appThread bth)
               liftIO $ writeIORef (vty $ appThread bth) v 
-              release (rk bth)
               throwE (Left e)
     pure (rcl, t0)
 

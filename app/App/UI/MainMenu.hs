@@ -3,14 +3,13 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# OPTIONS_GHC -Wno-partial-type-signatures #-}
 {-# LANGUAGE RecordWildCards #-}
-module App.UI.MainMenu (MenuExit(..), newMainMenu) where
+{-# LANGUAGE BlockArguments #-}
+module App.UI.MainMenu (MenuExit(..), withMainMenu) where
 
 import App.Thread
 import FRP.Rhine
-import Control.Monad.Trans.Resource
 import Data.Void
 import Brick
-import Control.Monad.Schedule.Class
 import Control.Lens (makeLenses)
 import Graphics.Vty
 import Brick.Focus
@@ -54,14 +53,13 @@ unselectableAttr = attrName "unselectable"
 mainMenuMaxWidth :: Int
 mainMenuMaxWidth = 60
 
-newMainMenu :: forall s m. (MonadSchedule m, MonadIO m) => AppThread s -> ResourceT m (ReleaseKey, Rhine (ExceptT MenuExit m) _ () ())
-newMainMenu th = do
-  (rk, bth) <- newBrickThread th theapp s0
+withMainMenu :: forall s m a. MonadIO m => AppThread s -> (Rhine (ExceptT MenuExit m) _ () () -> IO a) -> IO a
+withMainMenu th k = withBrickThread th theapp s0 \bth -> do
   let cl :: HoistClock (ExceptT (Either SomeException MainMenuState) m) (ExceptT MenuExit m) (BrickExitClock MainMenuState s)
       cl = HoistClock (BrickExitClock bth) $ withExceptT
         (either (Crash . displayException)
         (fromMaybe (Crash "no main menu exit reason set") . _mainMenuExit))
-  pure . (rk, ) $ (arr id @@ Never) |@| (tagS @@ cl) @>>^ absurd
+  k $ (arr id @@ Never) |@| (tagS @@ cl) @>>^ absurd
   where
     s0 = MainMenuState
       { -- TODO: initial focus should be set to Continue if available

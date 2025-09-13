@@ -7,12 +7,10 @@ import App.UI.GameScreen
 import App.Thread
 import GameData
 import FRP.Rhine
-import Control.Monad.Trans
 import System.Exit
 import Input
 import Simulation
 import Orphans ()
-import Control.Monad.Trans.Resource
 import GHC.Stack
 import Control.Monad
 import Data.Void
@@ -32,15 +30,13 @@ main = withAppThread $ \th -> Control.Monad.forever do
     ExitMainMenu -> pure ()
 
 runMainMenu :: HasCallStack => AppThread s -> IO MenuExit
-runMainMenu th = runResourceT do
-  (_, rh) <- newMainMenu th
-  fmap (either id absurd) . lift . runExceptT $ flow rh
+runMainMenu th = withMainMenu th $ \rh ->
+  fmap (either id absurd) . runExceptT $ flow rh
 
 runGame :: HasCallStack => AppThread s -> Level -> IO GameExit
-runGame th level = runResourceT do
-  (_, gurh) <- newGameUI th
+runGame th level = withGameUI th $ \gurh ->
   let rh = feedbackRhine rbSimToUI (arr snd ^>>@ gurh >-- rbUIToSim --> srh @>>^ arr ((),))
-  fmap (either id absurd) . lift . runExceptT $ flow rh
+   in fmap (either id absurd) . runExceptT $ flow rh
   where
     srh = simRhine (initialSimState level)
     rbUIToSim :: MonadIO m => ResamplingBuffer m clUI clS UserInput UserInput

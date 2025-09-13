@@ -9,7 +9,7 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE DerivingStrategies #-}
-module App.UI.GameScreen (newGameUI, GameExit(..)) where
+module App.UI.GameScreen (withGameUI, GameExit(..)) where
 
 import Control.Monad.IO.Class
 import App.Thread
@@ -20,7 +20,6 @@ import Data.Void
 import UnliftIO
 import Brick
 import Control.Monad.Schedule.Class (MonadSchedule)
-import Control.Monad.Trans.Resource
 import Data.Maybe
 import Control.Lens (makeLenses)
 import Brick.Widgets.Dialog
@@ -65,30 +64,30 @@ inClSF bth = arrMCl (atomically . sendBrickEvent bth)
 displayRhine :: forall m s. MonadIO m => BrickThread s SimState AppState -> Rhine m _ SimState UserInput
 displayRhine bth = neverOut $ inClSF bth @@ DisplayClock bth
 
-newGameUI
-  :: forall s m. (MonadSchedule m, MonadIO m)
+withGameUI
+  :: forall s m a. (MonadIO m, MonadSchedule m)
   => AppThread s
-  -> ResourceT m (ReleaseKey, Rhine (ExceptT GameExit m) _ SimState UserInput)
-newGameUI th = do
+  -> (Rhine (ExceptT GameExit m) _ SimState UserInput -> IO a)
+  -> IO a
+withGameUI th k = do
   -- Output event channel to pass to the app
   -- Unbounded memory usage, but it's expected: we don't want to
   -- silently lose any user input (as opposed to explicitly via ResamplingBuffers)
   (appC :: Chan UserInput) <- UnliftIO.newChan
 
-  (rk, bth) <- newBrickThread th (theapp appC) s0
-
   let -- ignore the constant type annotations for the monad we are in, the compiler complains without them
       uClock = eventClockOn @(ExceptT GameExit m) appC
 
-  let -- cl1 makes the Rhine throw GameExit when appropriate
-      cl1 = HoistClock (BrickExitClock bth) $ withExceptT @m
-        (either
-          (Crash . displayException @SomeException)
-          (fromMaybe (Crash "No reason given for game exit") . _gameExit))
-      exitRhine = neverIn $ (tagS @@ cl1) @>>^ absurd
-      userInputRhine = neverIn (tagS @@ uClock)
-      rh = displayRhine bth |@| (exitRhine |@| userInputRhine)
-  pure (rk, rh)
+  withBrickThread th (theapp appC) s0 $ \bth -> do
+    let -- cl1 makes the Rhine throw GameExit when appropriate
+        cl1 = HoistClock (BrickExitClock bth) $ withExceptT @m
+          (either
+            (Crash . displayException @SomeException)
+            (fromMaybe (Crash "No reason given for game exit") . _gameExit))
+        exitRhine = neverIn $ (tagS @@ cl1) @>>^ absurd
+        userInputRhine = neverIn (tagS @@ uClock)
+        rh = displayRhine bth |@| (exitRhine |@| userInputRhine)
+    k rh
   where
     s0 = AppState
       { _gameExit = Nothing
