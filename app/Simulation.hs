@@ -1,10 +1,11 @@
+{-# LANGUAGE Arrows #-}
 module Simulation (SimState(..), simSF) where
 
-import FRP.BearRiver
-import Control.Monad.State.Strict
+import FRP.Yampa
 import Input
 
 data SimState = SimState
 
-simSF :: SF (State SimState) (Event UserInput) ()
-simSF = arr (const ()) -- TODO
+simSF :: SF (Event UserInput) SimState
+simSF = proc u -> do
+  returnA -< SimState

@@ -6,7 +6,6 @@ module Main (main) where
 import App.UI.MainMenu
 import App.UI.GameScreen
 import App.Thread
-import GameData
 import Simulation
 import GHC.Stack
 import Control.Monad
@@ -17,7 +16,6 @@ import Control.Monad.IO.Class
 import Data.Functor.Identity
 import Data.Semigroup
 import System.Exit
-import Control.Monad.Trans.MSF
 import Input
 import Data.List.NonEmpty (NonEmpty)
 import Control.Concurrent.Async
@@ -43,10 +41,10 @@ main :: HasCallStack => IO ()
 main = withAppThread $ \th -> Control.Monad.forever do
   me <- runMainMenu th
   -- todo: proper crash screen
-  l <- case me of
+  case me of
     Quit -> liftIO exitSuccess
-    NewGame -> pure (Level SimState)
-  ge <- runGame th l
+    NewGame -> pure ()
+  ge <- runGame th
   case ge of
     ExitDesktop -> liftIO exitSuccess
     ExitMainMenu -> pure ()
@@ -58,8 +56,8 @@ runMainMenu th =
     Right mme ->
       maybe (throwIO . UIException $ userError "No reason given for menu exit") pure mme
 
-runGame :: AppThread -> Level -> IO GameExit
-runGame th level = withGameUI th \bth uq ->
+runGame :: AppThread -> IO GameExit
+runGame th = withGameUI th \bth uq ->
   withSFThread uq sf \sfth -> do
     firstExit <- race (atomically $ waitBrickThread bth) (atomically $ waitSFThread sfth)
     case firstExit of
@@ -69,6 +67,5 @@ runGame th level = withGameUI th \bth uq ->
       Right (Just e) -> throwIO (SimException e)
       Right Nothing -> throwIO . SimException $ userError "Simulation SF terminated early"
   where
-    s0 = initialSimState level
     sf :: SF Identity (Event (NonEmpty UserInput)) SimState
-    sf = arr (fmap sconcat) >>> readerS (runStateS_ (runReaderS simSF) s0) >>> arr fst
+    sf = arr (fmap sconcat) >>> simSF

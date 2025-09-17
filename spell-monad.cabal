@@ -39,7 +39,6 @@ executable spell-monad-exe
     other-modules:    App.UI.MainMenu
                     , App.UI.GameScreen
                     , App.Thread
-                    , GameData
                     , Input
                     , Simulation
     hs-source-dirs:   app
