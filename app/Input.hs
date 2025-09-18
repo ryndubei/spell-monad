@@ -1,7 +1,6 @@
 module Input (UserInput(..), moveVector) where
 
 import Control.Lens
-import qualified Linear as L
 
 -- | Aggregated input of the user over a short period of time.
 data UserInput = UserInput
@@ -11,8 +10,8 @@ data UserInput = UserInput
   , jump :: !Bool
   } deriving Show
 
-moveVector :: Lens' UserInput (L.V2 Double)
-moveVector = lens (\UserInput{moveX, moveY} -> L.V2 moveX moveY) (\u (L.V2 x y) -> u {moveX = x, moveY = y})
+moveVector :: Lens' UserInput (Double, Double)
+moveVector = lens (\UserInput{moveX, moveY} -> (moveX, moveY)) (\u (x,y) -> u {moveX = x, moveY = y})
 
 -- | Commutative up to floating-point errors.
 instance Semigroup UserInput where
