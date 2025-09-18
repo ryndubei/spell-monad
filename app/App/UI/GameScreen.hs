@@ -73,6 +73,4 @@ directInput KDown _ = Just mempty { moveY = -1 }
 directInput KDownLeft _ = Just mempty { moveX = -(1 / sqrt 2), moveY = -(1 / sqrt 2)}
 directInput KLeft _ = Just mempty { moveX = -1 }
 directInput KUpLeft _ = Just mempty { moveX = -(1 / sqrt 2), moveY = 1 / sqrt 2}
-directInput (KChar ' ') _ = Just mempty { jump = True }
-directInput KEsc _ = Just mempty { togglePause = True }
 directInput _ _ = Nothing
