@@ -9,11 +9,10 @@ import App.Thread
 import Simulation
 import GHC.Stack
 import Control.Monad
-import FRP.BearRiver
+import FRP.Yampa
 import Control.Concurrent.STM
 import Control.Exception
 import Control.Monad.IO.Class
-import Data.Functor.Identity
 import Data.Semigroup
 import System.Exit
 import Input
@@ -67,5 +66,5 @@ runGame th = withGameUI th \bth uq ->
       Right (Just e) -> throwIO (SimException e)
       Right Nothing -> throwIO . SimException $ userError "Simulation SF terminated early"
   where
-    sf :: SF Identity (Event (NonEmpty UserInput)) SimState
+    sf :: SF (Event (NonEmpty UserInput)) SimState
     sf = arr (fmap sconcat) >>> simSF
