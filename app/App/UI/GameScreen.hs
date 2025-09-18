@@ -66,11 +66,12 @@ theapp q = App {..}
 
 directInput :: Key -> [Modifier] -> Maybe UserInput
 directInput KUp _ = Just $ mempty { moveY = 1 }
-directInput KUpRight _ = Just mempty { moveX = 1 / sqrt 2, moveY = 1 / sqrt 2}
+-- normalising to magnitude 1 is the responsibility of the game
+directInput KUpRight _ = Just mempty { moveX = 1, moveY = 1}
 directInput KRight _ = Just mempty { moveX = 1 }
-directInput KDownRight _ = Just mempty { moveX = 1 / sqrt 2, moveY = -(1 / sqrt 2)}
+directInput KDownRight _ = Just mempty { moveX = 1, moveY = -1}
 directInput KDown _ = Just mempty { moveY = -1 }
-directInput KDownLeft _ = Just mempty { moveX = -(1 / sqrt 2), moveY = -(1 / sqrt 2)}
+directInput KDownLeft _ = Just mempty { moveX = -1, moveY = -1}
 directInput KLeft _ = Just mempty { moveX = -1 }
-directInput KUpLeft _ = Just mempty { moveX = -(1 / sqrt 2), moveY = 1 / sqrt 2}
+directInput KUpLeft _ = Just mempty { moveX = -1, moveY = 1}
 directInput _ _ = Nothing
