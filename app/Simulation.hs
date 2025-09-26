@@ -4,48 +4,55 @@ module Simulation (SimState(..), simSF, ObjectIdentifier(..), VisibleObject(..))
 
 import FRP.Yampa
 import Input
-import Data.Bifunctor (bimap)
-import Data.Set (Set)
-import qualified Data.Set as Set
 import Control.Lens.Operators
+import Data.Text (Text)
+import Data.Sequence (Seq)
+import qualified Data.Text as T
 
 -- | Tells the UI thread how an object should be drawn.
-data ObjectIdentifier = Player
+data ObjectIdentifier = Player deriving (Eq, Ord, Show)
 
 data VisibleObject = VisibleObject
-  { position :: !(Int, Int) -- ^ bottom-left corner
-  , occupies :: Set (Int, Int) -- ^ Cells occupied by the object, relative to the bottom-left corner.
+  { position :: !(Double, Double) -- ^ centre
+  , radius :: Double -- ^ anything further away from 'position' should not be drawn
+  , sdf :: (Double, Double) -> Double -- ^ signed distance function to be drawn, relative to position
   , objIdentifier :: ObjectIdentifier
   }
 
 data SimState = SimState
   { objects :: [VisibleObject]
-  , camera :: !(Int, Int) -- ^ the 'camera' cell should always be visible, even
+  , camera :: !(Double, Double) -- ^ the 'camera' position should always be visible, even
                           -- if not necessarily in the centre of the screen
   }
 
 inputDecayHalfLife :: Floating a => a
-inputDecayHalfLife = 0.5
+inputDecayHalfLife = 1
 
 inputChangeRate :: Floating a => a
-inputChangeRate = 10
+inputChangeRate = 100
 
 -- | Magnitude decays exponentially given no further input,
 -- with half-life inputDecayHalfLife.
 -- Given new input, changes to the new direction vector with
 -- velocity inputChangeRate.
-smoothInput :: forall v k. (VectorSpace v k, Real k, Floating k) => SF (Event v) v
+--
+-- >>> embed smoothInput (deltaEncode 1 [Event (1.0,2.0), NoEvent, NoEvent, Event (3.0, -5.0), NoEvent, NoEvent])
+-- [(0.0,0.0),(4.47213595499958,8.94427190999916),(2.23606797749979,4.47213595499958),(0.5590169943749475,1.118033988749895),(4.26476810109556,-8.16999102925253),(2.13238405054778,-4.084995514626265)]
+smoothInput :: forall v k. (Eq v, VectorSpace v k, Real k, Floating k) => SF (Event v) v
 smoothInput = decayFrom zeroVector
   where
     decayFrom v0 = switch
       (proc e -> do
-        v <- decay v0 (2 * inputDecayHalfLife) -< ()
+        v <- decay v0 (exp (log 2 / inputDecayHalfLife)) -< ()
         returnA -< (v, fmap (v,) e))
-      (uncurry moveTo)
+      (\(a,b) -> const NoEvent >=- moveTo a b)
 
     moveTo v0 v0' =
-      let a = inputChangeRate *^ (v0' ^-^ v0)
-          timeToCollide = norm a / inputChangeRate
+      let disp = v0' ^-^ v0
+          udisp = if disp == zeroVector then disp else normalize disp
+          -- t = s / v
+          timeToCollide = norm disp / inputChangeRate
+          a = inputChangeRate *^ udisp
        in switch
         (proc e -> do
           c <- snapAfter (realToFrac timeToCollide) -< ()
@@ -58,7 +65,7 @@ smoothInput = decayFrom zeroVector
             NoEvent -> Left v <$ c
             )
         )
-        (either decayFrom (uncurry moveTo))
+        ((const NoEvent >=-) . either decayFrom (uncurry moveTo))
 
 -- | Exponential decay with magnitude 1/k^t at time t
 --
@@ -81,18 +88,21 @@ decay v0 k = proc _ -> do
 clampMagnitude :: (Num k, Ord k, VectorSpace v k) => v -> v
 clampMagnitude v = v ^/ max 1 (norm v)
 
-simSF :: SF (Event UserInput) SimState
+simSF :: SF (Event UserInput) (SimState, Seq Text)
 simSF = proc u -> do
-  vInput <- smoothInput -< clampMagnitude . (^. moveVector) <$> u
+  vInput <- smoothInput -< (10 *^) . clampMagnitude . (^. moveVector) <$> u
 
-  pos <- integral -< vInput
-  let playerObject = VisibleObject
-        { position = bimap round round pos
-        , occupies = Set.fromList [(0,0), (0,1), (0,2), (1,0), (1,1), (1,2)] -- ^ 2x 3y rectangle
+  pos <- trapezoidIntegral -< vInput
+
+  returnA -< (SimState
+    { objects = [playerObject pos]
+    , camera = (0, 0)
+    }, event mempty (pure . T.pack . show) u)
+  where
+    playerObject pos = VisibleObject
+        { position = pos
+        , radius = 3
+        -- square of diameter 2
+        , sdf = \(x,y) -> max (abs x - 1) (abs y - 1)
         , objIdentifier = Player
         }
-
-  returnA -< SimState
-    { objects = [playerObject]
-    , camera = (0, 0)
-    }

@@ -18,6 +18,9 @@ import System.Exit
 import Input
 import Data.List.NonEmpty (NonEmpty)
 import Control.Concurrent.Async
+import Data.Void
+import Data.Text (Text)
+import Data.Sequence (Seq)
 
 -- TODO: exception hierarchy
 
@@ -57,14 +60,30 @@ runMainMenu th =
 
 runGame :: AppThread -> IO GameExit
 runGame th = withGameUI th \bth uq ->
-  withSFThread uq sf \sfth -> do
-    firstExit <- race (atomically $ waitBrickThread bth) (atomically $ waitSFThread sfth)
-    case firstExit of
-      Left (Right (Just ge)) -> pure ge
-      Left (Right Nothing) -> throwIO . UIException $ userError "No reason given for game exit"
-      Left (Left e) -> throwIO (UIException e)
-      Right (Just e) -> throwIO (SimException e)
-      Right Nothing -> throwIO . SimException $ userError "Simulation SF terminated early"
+  withSFThread uq sf \sfth ->
+    withAsync
+      do forever $ atomically do
+          b <- isBrickQueueEmpty bth
+          check b
+          takeSFThread sfth >>= sendBrickEvent bth . Left
+          flushSFThreadLogs sfth >>= sendBrickEvent bth . Right
+      \commth -> do
+        firstExit <-
+          race
+            (atomically $ waitBrickThread bth)
+            (race
+              (waitCatch commth)
+              (atomically $ waitSFThread sfth))
+        case firstExit of
+          Left (Right (Just ge)) -> pure ge
+          Left (Right Nothing) -> throwIO . UIException $ userError "No reason given for game exit"
+          Left (Left e) -> throwIO (UIException e)
+          Right (Right (Just e)) -> throwIO (SimException e)
+          Right (Right Nothing) -> throwIO . SimException $ userError "Simulation SF terminated early"
+
+          -- commth
+          Right (Left (Left e)) -> throwIO e
+          Right (Left (Right v)) -> absurd v
   where
-    sf :: SF (Event (NonEmpty UserInput)) SimState
+    sf :: SF (Event (NonEmpty UserInput)) (SimState, Seq Text)
     sf = arr (fmap sconcat) >>> simSF

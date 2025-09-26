@@ -14,6 +14,7 @@ module App.Thread
   , takeSFThread
   , withSFThread
   , waitSFThread
+  , flushSFThreadLogs
   ) where
 
 import Graphics.Vty (defaultConfig, Vty(..))
@@ -33,6 +34,8 @@ import Data.Time
 import Control.Concurrent
 import Data.List.NonEmpty (NonEmpty)
 import qualified Data.List.NonEmpty as NE
+import Data.Foldable
+import Data.Text (Text)
 
 -- | Initialised terminal resources.
 data AppThread = AppThread
@@ -125,8 +128,8 @@ isBrickQueueEmpty BrickThread{eventTQueue} = isEmptyTQueue eventTQueue
 waitBrickThread :: BrickThread e s -> STM (Either SomeException s)
 waitBrickThread BrickThread{brickAsync} = Data.Bifunctor.second fst <$> waitCatchSTM brickAsync
 
-maxDelay :: Int
-maxDelay = 100 * 10^(3 :: Int) -- 100ms in microseconds
+maxDelay :: Num a => a
+maxDelay = 30 * 10^(3 :: Int) -- 30ms in microseconds
 
 -- | Signal function thread with input 'u' and discardable output 's'.
 -- Only the last output is stored.
@@ -138,6 +141,7 @@ data SFThread u s = forall s' u'. SFThread
   , lmapperSFThread :: u -> u'
   , paused :: !(TMVar UTCTime)
   , lastTime :: !(TVar UTCTime)
+  , logs :: TQueue Text
   }
 
 deriving instance Functor (SFThread u)
@@ -164,35 +168,27 @@ waitSFThread :: SFThread u s -> STM (Maybe SomeException)
 waitSFThread SFThread{..} =
   either Just (const Nothing) <$> waitCatchSTM sfAsync 
 
+-- | Get all logs sent by the SFThread. Never retries.
+flushSFThreadLogs :: SFThread u s -> STM [Text] 
+flushSFThreadLogs SFThread{..} = flushTQueue logs
+
 -- | Run the passed signal function as an SFThread. Just like BrickThread, does
 -- not guarantee that the SFThread will be running for the entire continuation.
-withSFThread :: TQueue u -> SF (Event (NonEmpty u)) s -> (SFThread u s -> IO a) -> IO a
+withSFThread :: Foldable f => TQueue u -> SF (Event (NonEmpty u)) (s, f Text) -> (SFThread u s -> IO a) -> IO a
 withSFThread userInputs sf k = do
   lastOutput <- newEmptyTMVarIO
   paused <- newEmptyTMVarIO
   lastTime <- getCurrentTime >>= newTVarIO 
+  logs <- newTQueueIO
 
   let
     sfThread = do
       getCurrentTime >>= atomically . writeTVar lastTime
       reactimate
         (pure NoEvent)
-        (\b -> handlePause >> sense b)
+        sense
         actuate
         sf
-
-    handlePause = do
-      p0 <- atomically $ tryReadTMVar paused
-      case p0 of
-        Just pauseTime -> do
-          -- Block until unpaused
-          atomically (isEmptyTMVar paused >>= check)
-
-          pauseDuration <- (`diffUTCTime` pauseTime) <$> getCurrentTime
-
-          -- Skip last timestamp forward by pauseDuration
-          atomically $ modifyTVar' lastTime (addUTCTime pauseDuration)
-        Nothing -> pure ()
 
     sense block = do
       -- User input event, if given
@@ -214,8 +210,9 @@ withSFThread userInputs sf k = do
         pure dt'
       pure (dt, e)
 
-    actuate _ s = do
+    actuate _ (s, newLogs) = do
       atomically $ writeTMVar lastOutput s
+      traverse_ (atomically . writeTQueue logs) newLogs 
       pure False
 
   withAsync
