@@ -36,6 +36,7 @@ import Data.List.NonEmpty (NonEmpty)
 import qualified Data.List.NonEmpty as NE
 import Data.Foldable
 import Data.Text (Text)
+import Data.Maybe
 
 -- | Initialised terminal resources.
 data AppThread = AppThread
@@ -192,23 +193,33 @@ withSFThread userInputs sf k = do
 
     sense block = do
       -- User input event, if given
-      e <- if block
-        then do
-          -- block on waiting for user input for up to maxDelay microseconds
-          u <- either id id <$> race
-              (fmap Just . atomically $ (NE.:|) <$> readTQueue userInputs <*> flushTQueue userInputs)
-              (threadDelay maxDelay >> pure Nothing)
-          pure . Just $ maybeToEvent u
-        else do
-          us <- atomically . fmap NE.nonEmpty $ flushTQueue userInputs
-          pure . Just $ maybeToEvent us
+      e <- do
+        us <- NE.nonEmpty <$> atomically (flushTQueue userInputs)
+
+        if isNothing us && block
+          then do
+            timeout <- newTVarIO False
+            withAsync (threadDelay maxDelay >> atomically (writeTVar timeout True)) $ \a -> do
+              link a
+              atomically do
+                result <- newTVar NoEvent
+                orElse
+                  -- if timed out, exit without modifying the queue,
+                  -- otherwise proceed to reading the queue
+                  (readTVar timeout >>= check)
+                  -- try reading from the queue, retry if empty
+                  do
+                    us' <- (NE.:|) <$> readTQueue userInputs <*> flushTQueue userInputs
+                    writeTVar result (Event us')
+                readTVar result
+          else pure $ maybeToEvent us
 
       t' <- getCurrentTime
       dt <- atomically do
         dt' <- realToFrac . diffUTCTime t' <$> readTVar lastTime
         writeTVar lastTime t'
         pure dt'
-      pure (dt, e)
+      pure (dt, Just e)
 
     actuate _ (s, newLogs) = do
       atomically $ writeTMVar lastOutput s
