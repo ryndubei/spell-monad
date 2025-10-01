@@ -198,15 +198,13 @@ withSFThread userInputs sf k = do
 
         if isNothing us && block
           then do
-            timeout <- newTVarIO False
-            withAsync (threadDelay maxDelay >> atomically (writeTVar timeout True)) $ \a -> do
-              link a
+            withAsync (threadDelay maxDelay) $ \a -> do
               atomically do
                 result <- newTVar NoEvent
                 orElse
                   -- if timed out, exit without modifying the queue,
                   -- otherwise proceed to reading the queue
-                  (readTVar timeout >>= check)
+                  (waitSTM a)
                   -- try reading from the queue, retry if empty
                   do
                     us' <- (NE.:|) <$> readTQueue userInputs <*> flushTQueue userInputs
