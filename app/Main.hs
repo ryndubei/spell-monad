@@ -9,18 +9,12 @@ import App.Thread
 import Simulation
 import GHC.Stack
 import Control.Monad
-import FRP.Yampa
 import Control.Concurrent.STM
 import Control.Exception
 import Control.Monad.IO.Class
-import Data.Semigroup
 import System.Exit
-import Input
-import Data.List.NonEmpty (NonEmpty)
 import Control.Concurrent.Async
 import Data.Void
-import Data.Text (Text)
-import Data.Sequence (Seq)
 
 -- TODO: exception hierarchy
 
@@ -59,8 +53,8 @@ runMainMenu th =
       maybe (throwIO . UIException $ userError "No reason given for menu exit") pure mme
 
 runGame :: AppThread -> IO GameExit
-runGame th = withGameUI th \bth uq ->
-  withSFThread uq sf \sfth ->
+runGame th = withSFThread simSF \sfth ->
+  withGameUI th sfth \bth ->
     withAsync
       do forever $ atomically do
           b <- isBrickQueueEmpty bth
@@ -84,6 +78,3 @@ runGame th = withGameUI th \bth uq ->
           -- commth
           Right (Left (Left e)) -> throwIO e
           Right (Left (Right v)) -> absurd v
-  where
-    sf :: SF (Event (NonEmpty UserInput)) (SimState, Seq Text)
-    sf = arr (fmap sconcat) >>> simSF

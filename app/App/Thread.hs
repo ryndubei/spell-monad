@@ -32,8 +32,6 @@ import Data.Bifunctor
 import FRP.Yampa
 import Data.Time
 import Control.Concurrent
-import Data.List.NonEmpty (NonEmpty)
-import qualified Data.List.NonEmpty as NE
 import Data.Foldable
 import Data.Text (Text)
 import Data.Maybe
@@ -134,10 +132,10 @@ maxDelay = 30 * 10^(3 :: Int) -- 30ms in microseconds
 
 -- | Signal function thread with input 'u' and discardable output 's'.
 -- Only the last output is stored.
-data SFThread u s = forall s' u'. SFThread
+data SFThread u s = forall s' u'. Semigroup u' => SFThread
   { sfAsync :: !(Async ())
   , lastOutput :: !(TMVar s')
-  , userInputs :: !(TQueue u')
+  , userInputs :: !(TMVar u')
   , rmapperSFThread :: s' -> s
   , lmapperSFThread :: u -> u'
   , paused :: !(TMVar UTCTime)
@@ -153,10 +151,10 @@ instance Profunctor SFThread where
     let lmapperGameThread' = lmapperSFThread . f
      in SFThread{lmapperSFThread = lmapperGameThread', ..}
 
--- | Non-retrying, sends input 'u' to the SFThread's queue.
+-- | Non-retrying, sends input 'u' to the SFThread.
 sendSFThread :: SFThread u s -> u -> STM ()
 sendSFThread SFThread{userInputs, lmapperSFThread} =
-  writeTQueue userInputs . lmapperSFThread
+  (\u -> tryTakeTMVar userInputs >>= maybe (writeTMVar userInputs u) (writeTMVar userInputs . (u <>))) . lmapperSFThread
 
 -- | Retries until an output 's' is available from SFThread, then
 -- removes and returns 's'.
@@ -175,8 +173,9 @@ flushSFThreadLogs SFThread{..} = flushTQueue logs
 
 -- | Run the passed signal function as an SFThread. Just like BrickThread, does
 -- not guarantee that the SFThread will be running for the entire continuation.
-withSFThread :: Foldable f => TQueue u -> SF (Event (NonEmpty u)) (s, f Text) -> (SFThread u s -> IO a) -> IO a
-withSFThread userInputs sf k = do
+withSFThread :: (Foldable f, Semigroup u) => SF (Event u) (s, f Text) -> (SFThread u s -> IO a) -> IO a
+withSFThread sf k = do
+  userInputs <- newEmptyTMVarIO
   lastOutput <- newEmptyTMVarIO
   paused <- newEmptyTMVarIO
   lastTime <- getCurrentTime >>= newTVarIO 
@@ -194,7 +193,7 @@ withSFThread userInputs sf k = do
     sense block = do
       -- User input event, if given
       e <- do
-        us <- NE.nonEmpty <$> atomically (flushTQueue userInputs)
+        us <- atomically (tryTakeTMVar userInputs)
 
         if isNothing us && block
           then do
@@ -207,7 +206,7 @@ withSFThread userInputs sf k = do
                   (waitSTM a)
                   -- try reading from the queue, retry if empty
                   do
-                    us' <- (NE.:|) <$> readTQueue userInputs <*> flushTQueue userInputs
+                    us' <- takeTMVar userInputs
                     writeTVar result (Event us')
                 readTVar result
           else pure $ maybeToEvent us

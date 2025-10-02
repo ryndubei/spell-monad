@@ -47,14 +47,9 @@ data GameExit = ExitDesktop | ExitMainMenu
 
 makeLenses ''AppState
 
-withGameUI :: AppThread -> (BrickThread (Either SimState [Text]) (Maybe GameExit) -> TQueue UserInput -> IO a) -> IO a
-withGameUI th k = do
-  -- Output event queue to pass to the app
-  -- Unbounded memory usage, but this is necessary:
-  -- we don't want to silently lose any user input
-  q <- newTQueueIO
-
-  withBrickThread th (theapp q) s0 \bth -> k ((^. gameExit) <$> bth) q
+withGameUI :: AppThread -> SFThread UserInput o -> (BrickThread (Either SimState [Text]) (Maybe GameExit) -> IO a) -> IO a
+withGameUI th sfth k = do
+  withBrickThread th (theapp sfth) s0 \bth -> k ((^. gameExit) <$> bth)
 
   where
     s0 = AppState
@@ -71,8 +66,8 @@ withGameUI th k = do
       }
 
 
-theapp :: TQueue UserInput -> App AppState (Either SimState [Text]) Name
-theapp q = App {..}
+theapp :: SFThread UserInput o -> App AppState (Either SimState [Text]) Name
+theapp sfth = App {..}
   where
     appDraw s =
       [
@@ -89,7 +84,7 @@ theapp q = App {..}
       L.assign gameExit (Just ExitMainMenu)
       halt
     appHandleEvent (VtyEvent (EvKey k m)) =
-      traverse_ (liftIO . atomically . writeTQueue q) (directInput k m)
+      traverse_ (liftIO . atomically . sendSFThread sfth) (directInput k m)
     appHandleEvent (AppEvent (Left ss)) = L.assign simState ss
     appHandleEvent (AppEvent (Right newLogLines)) = do
       -- Prune existing logs
