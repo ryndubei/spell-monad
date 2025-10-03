@@ -75,8 +75,9 @@ theapp q = App {..}
     appHandleEvent (VtyEvent (EvKey (KChar 'q') _)) = do
       L.assign gameExit (Just ExitMainMenu)
       halt
-    appHandleEvent (VtyEvent (EvKey k m)) =
+    appHandleEvent (VtyEvent (EvKey k m)) = do
       traverse_ (liftIO . atomically . writeTQueue q) (directInput k m)
+      continueWithoutRedraw -- input forwarded directly to simulation thread, not immediately visible
     appHandleEvent (AppEvent (Left ss)) = L.assign simState ss
     appHandleEvent (AppEvent (Right newLogLines)) = do
       -- Prune existing logs
