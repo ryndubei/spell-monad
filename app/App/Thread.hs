@@ -9,6 +9,8 @@ module App.Thread
   , sendBrickEvent
   , isBrickQueueEmpty
   , waitBrickThread
+  , mapBrickResult
+  , takeBrickThread
   , SFThread
   , sendSFThread
   , takeSFThread
@@ -78,32 +80,38 @@ brickBChanSize :: Int
 brickBChanSize = 1
 
 -- | AppThread running a particular Brick application
-data BrickThread e s = forall e1. BrickThread
+data BrickThread r e o = forall e1 o1. BrickThread
   { appThread :: AppThread
   , brickBChan :: !(BChan e1)
-  , brickAsync :: !(Async (s, Vty))
+  , brickAsync :: !(Async (r, Vty))
   , eventTQueue :: !(TQueue e1)
+  , outputTQueue :: !(TQueue o1)
   , eventMapper :: e -> e1
+  , outputMapper :: o1 -> o
   }
 
-deriving instance Functor (BrickThread e)
+deriving instance Functor (BrickThread r e)
 
-instance Profunctor BrickThread where
+instance Profunctor (BrickThread r) where
   lmap f BrickThread{..} =
     let eventMapper' = eventMapper . f
      in BrickThread{eventMapper = eventMapper', ..}
   rmap = fmap
 
+mapBrickResult :: (r -> r') -> BrickThread r e o -> BrickThread r' e o
+mapBrickResult f b@BrickThread{brickAsync} = b { brickAsync = fmap (Data.Bifunctor.first f) brickAsync } 
+
 -- | Runs the passed Brick application on a separate thread, using resources initialised by
 -- AppThread. Does not guarantee that BrickThread will remain active for the entire continuation:
 -- use 'waitBrickThread' with 'race' to exit immediately when BrickThread terminates.
-withBrickThread :: Ord n => AppThread -> App s e n -> s -> (BrickThread e s -> IO a) -> IO a
+withBrickThread :: Ord n => AppThread -> (TQueue o -> App s e n) -> s -> (BrickThread s e o -> IO a) -> IO a
 withBrickThread appThread theapp initialState k = do
   brickBChan <- liftIO $ newBChan brickBChanSize
   vty' <- liftIO $ readTVarIO (vty appThread)
   eventTQueue <- liftIO newTQueueIO
+  outputTQueue <- newTQueueIO
   withAsync
-    (customMainWithVty vty' (rebuildVty appThread) (Just brickBChan) theapp initialState)
+    (customMainWithVty vty' (rebuildVty appThread) (Just brickBChan) (theapp outputTQueue) initialState)
     \brickAsync -> do
       withAsync
         do
@@ -113,19 +121,23 @@ withBrickThread appThread theapp initialState k = do
         \_ -> k BrickThread{..}
   where
     eventMapper = id
+    outputMapper = id
 
 -- | This function does not retry, and BrickThread can queue an unbounded number
 -- of events 'e'. This may seem to defeat the point of Brick's BChan. To avoid a
 -- memory leak, sendBrickEvent should only be called when 'isBrickQueueEmpty' is True.
-sendBrickEvent :: BrickThread e s -> e -> STM ()
+sendBrickEvent :: BrickThread r e o -> e -> STM ()
 sendBrickEvent BrickThread{..} = writeTQueue eventTQueue . eventMapper
 
-isBrickQueueEmpty :: BrickThread e s -> STM Bool
+isBrickQueueEmpty :: BrickThread r e o -> STM Bool
 isBrickQueueEmpty BrickThread{eventTQueue} = isEmptyTQueue eventTQueue
 
 -- | Retries until BrickThread exits.
-waitBrickThread :: BrickThread e s -> STM (Either SomeException s)
+waitBrickThread :: BrickThread r e o -> STM (Either SomeException r)
 waitBrickThread BrickThread{brickAsync} = Data.Bifunctor.second fst <$> waitCatchSTM brickAsync
+
+takeBrickThread :: BrickThread r e o -> STM o
+takeBrickThread BrickThread{outputTQueue, outputMapper} = outputMapper <$> readTQueue outputTQueue
 
 maxDelay :: Num a => a
 maxDelay = 30 * 10^(3 :: Int) -- 30ms in microseconds

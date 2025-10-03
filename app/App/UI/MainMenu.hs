@@ -15,6 +15,7 @@ import Brick.Widgets.Border
 import Control.Exception
 import Data.Bifunctor
 import Control.Monad.IO.Class
+import Control.Concurrent.STM
 
 data MenuExit = Quit | NewGame
 
@@ -49,8 +50,8 @@ unselectableAttr = attrName "unselectable"
 mainMenuMaxWidth :: Int
 mainMenuMaxWidth = 60
 
-withMainMenu :: AppThread -> (BrickThread Void (Maybe MenuExit) -> IO a) -> IO a
-withMainMenu th k = withBrickThread th theapp s0 $ k . fmap (^. mainMenuExit)
+withMainMenu :: AppThread -> (BrickThread (Maybe MenuExit) Void Void -> IO a) -> IO a
+withMainMenu th k = withBrickThread th theapp s0 $ k . mapBrickResult (^. mainMenuExit)
   where
     s0 = MainMenuState
       { -- TODO: initial focus should be set to Continue if available
@@ -60,8 +61,8 @@ withMainMenu th k = withBrickThread th theapp s0 $ k . fmap (^. mainMenuExit)
 
 data KeyMoveDirection = KeyPrev | KeyNext
 
-theapp :: App MainMenuState Void Name
-theapp = App {..}
+theapp :: TQueue Void -> App MainMenuState Void Name
+theapp _ = App {..}
   where
     appDraw s =
       pure . center . hLimit mainMenuMaxWidth $ (titleWidget <=> vBox (buttons s))

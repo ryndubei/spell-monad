@@ -7,7 +7,6 @@ import Control.Monad.IO.Class
 import App.Thread
 import Simulation
 import Input
-import UnliftIO
 import Brick
 import Control.Lens (makeLenses)
 import Brick.Widgets.Dialog
@@ -24,7 +23,7 @@ import Data.Sequence (Seq)
 import qualified Data.Sequence as Seq
 import Brick.Widgets.Border
 import Brick.Widgets.Center
-import System.IO
+import Control.Concurrent.STM
 
 data Name
   = ExitDialogButtonYes
@@ -47,10 +46,8 @@ data GameExit = ExitDesktop | ExitMainMenu
 
 makeLenses ''AppState
 
-withGameUI :: AppThread -> SFThread UserInput o -> (BrickThread (Either SimState [Text]) (Maybe GameExit) -> IO a) -> IO a
-withGameUI th sfth k = do
-  withBrickThread th (theapp sfth) s0 \bth -> k ((^. gameExit) <$> bth)
-
+withGameUI :: AppThread -> SimState -> (BrickThread (Maybe GameExit) (Either SimState [Text]) UserInput -> IO a) -> IO a
+withGameUI th ss0 k = withBrickThread th theapp s0 $ k . mapBrickResult (^. gameExit)
   where
     s0 = AppState
       { _gameExit = Nothing
@@ -59,15 +56,10 @@ withGameUI th sfth k = do
       , _logLines = mempty
       , _logIndex = 0
       }
-    -- TODO: don't define a default state
-    ss0 = SimState
-      { camera = (0,0)
-      , objects = []
-      }
 
 
-theapp :: SFThread UserInput o -> App AppState (Either SimState [Text]) Name
-theapp sfth = App {..}
+theapp :: TQueue UserInput -> App AppState (Either SimState [Text]) Name
+theapp q = App {..}
   where
     appDraw s =
       [
@@ -84,7 +76,7 @@ theapp sfth = App {..}
       L.assign gameExit (Just ExitMainMenu)
       halt
     appHandleEvent (VtyEvent (EvKey k m)) =
-      traverse_ (liftIO . atomically . sendSFThread sfth) (directInput k m)
+      traverse_ (liftIO . atomically . writeTQueue q) (directInput k m)
     appHandleEvent (AppEvent (Left ss)) = L.assign simState ss
     appHandleEvent (AppEvent (Right newLogLines)) = do
       -- Prune existing logs
