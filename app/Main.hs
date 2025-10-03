@@ -14,6 +14,8 @@ import Control.Exception
 import Control.Monad.IO.Class
 import System.Exit
 import Control.Concurrent.Async
+import Control.Monad.Cont
+import Control.Monad.Trans
 
 -- TODO: exception hierarchy
 
@@ -52,32 +54,29 @@ runMainMenu th =
       maybe (throwIO . UIException $ userError "No reason given for menu exit") pure mme
 
 runGame :: AppThread -> IO GameExit
-runGame th = withSFThread simSF \sfth -> do
+runGame th = evalContT do
+  sfth <- ContT $ withSFThread simSF
 
   -- Assumption: sfth does not block indefinitely until input is given
   -- (ideally does not block at all on first output)
-  s0 <- atomically $ takeSFThread sfth
+  s0 <- lift . atomically $ takeSFThread sfth
 
-  withGameUI th s0 \bth ->
-    withAsync
-      do forever $ atomically do
-          b <- isBrickQueueEmpty bth
-          check b
-          takeSFThread sfth >>= sendBrickEvent bth . Left
-          flushSFThreadLogs sfth >>= sendBrickEvent bth . Right
-      \sfToBrickTh -> do
-        link sfToBrickTh
-        withAsync
-          (forever $ atomically (takeBrickThread bth >>= sendSFThread sfth))
-          \brickToSfTh -> do
-            link brickToSfTh
-            firstExit <-
-              race
-                (atomically $ waitBrickThread bth)
-                (atomically $ waitSFThread sfth)
-            case firstExit of
-              Left (Right (Just ge)) -> pure ge
-              Left (Right Nothing) -> throwIO . UIException $ userError "No reason given for game exit"
-              Left (Left e) -> throwIO (UIException e)
-              Right (Just e) -> throwIO (SimException e)
-              Right Nothing -> throwIO . SimException $ userError "Simulation SF terminated early"
+  bth <- ContT $ withGameUI th s0
+
+  sfToBrickTh <- ContT . withAsync . forever $ atomically do
+    b <- isBrickQueueEmpty bth
+    check b
+    takeSFThread sfth >>= sendBrickEvent bth . Left
+    flushSFThreadLogs sfth >>= sendBrickEvent bth . Right
+  lift $ link sfToBrickTh
+
+  brickToSfTh <- ContT . withAsync . forever $ atomically (takeBrickThread bth >>= sendSFThread sfth)
+  lift $ link brickToSfTh
+
+  firstExit <- lift $ race (atomically $ waitBrickThread bth) (atomically $ waitSFThread sfth)
+  lift $ case firstExit of
+    Left (Right (Just ge)) -> pure ge
+    Left (Right Nothing) -> throwIO . UIException $ userError "No reason given for game exit"
+    Left (Left e) -> throwIO (UIException e)
+    Right (Just e) -> throwIO (SimException e)
+    Right Nothing -> throwIO . SimException $ userError "Simulation SF terminated early"
