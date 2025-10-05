@@ -41,6 +41,7 @@ executable spell-monad-exe
                     , App.Thread
                     , Input
                     , Simulation
+                    , Simulation.Input
     hs-source-dirs:   app
     default-extensions:
         Arrows

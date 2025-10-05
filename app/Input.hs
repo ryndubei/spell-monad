@@ -1,4 +1,4 @@
-module Input (UserInput(..), moveVector) where
+module Input (UserInput(..), userInputMoveVector) where
 
 import Control.Lens
 
@@ -8,8 +8,8 @@ data UserInput = UserInput
   , moveY :: !Double
   } deriving Show
 
-moveVector :: Lens' UserInput (Double, Double)
-moveVector = lens (\UserInput{moveX, moveY} -> (moveX, moveY)) (\u (x,y) -> u {moveX = x, moveY = y})
+userInputMoveVector :: Lens' UserInput (Double, Double)
+userInputMoveVector = lens (\UserInput{moveX, moveY} -> (moveX, moveY)) (\u (x,y) -> u {moveX = x, moveY = y})
 
 -- | Commutative up to floating-point errors.
 instance Semigroup UserInput where
