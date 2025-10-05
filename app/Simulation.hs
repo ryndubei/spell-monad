@@ -6,7 +6,6 @@ import FRP.Yampa
 import Input
 import Control.Lens.Operators
 import Data.Text (Text)
-import Data.Sequence (Seq)
 import qualified Data.Text as T
 
 -- | Tells the UI thread how an object should be drawn.
@@ -88,7 +87,7 @@ decay v0 k = proc _ -> do
 clampMagnitude :: (Num k, Ord k, VectorSpace v k) => v -> v
 clampMagnitude v = v ^/ max 1 (norm v)
 
-simSF :: SF (Event UserInput) (SimState, Seq Text)
+simSF :: SF (Event UserInput) (SimState, Event Text)
 simSF = proc u -> do
   vInput <- smoothInput -< (10 *^) . clampMagnitude . (^. moveVector) <$> u
 
@@ -97,7 +96,7 @@ simSF = proc u -> do
   returnA -< (SimState
     { objects = [playerObject pos]
     , camera = (0, 0)
-    }, event mempty (pure . T.pack . show) u)
+    }, fmap (T.pack . show) u)
   where
     playerObject pos = VisibleObject
         { position = pos

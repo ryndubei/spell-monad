@@ -67,7 +67,7 @@ runGame th = evalContT do
     b <- isBrickQueueEmpty bth
     check b
     takeSFThread sfth >>= sendBrickEvent bth . Left
-    flushSFThreadLogs sfth >>= sendBrickEvent bth . Right
+    flushSFThreadEvents sfth >>= sendBrickEvent bth . Right
   lift $ link sfToBrickTh
 
   brickToSfTh <- ContT . withAsync . forever $ atomically (takeBrickThread bth >>= sendSFThread sfth)

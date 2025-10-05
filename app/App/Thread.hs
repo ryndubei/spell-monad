@@ -16,7 +16,8 @@ module App.Thread
   , takeSFThread
   , withSFThread
   , waitSFThread
-  , flushSFThreadLogs
+  , flushSFThreadEvents
+  , mapDiscreteOutput
   ) where
 
 import Graphics.Vty (defaultConfig, Vty(..))
@@ -34,8 +35,6 @@ import Data.Bifunctor
 import FRP.Yampa
 import Data.Time
 import Control.Concurrent
-import Data.Foldable
-import Data.Text (Text)
 import Data.Maybe
 
 -- | Initialised terminal resources.
@@ -142,9 +141,9 @@ takeBrickThread BrickThread{outputTQueue, outputMapper} = outputMapper <$> readT
 maxDelay :: Num a => a
 maxDelay = 30 * 10^(3 :: Int) -- 30ms in microseconds
 
--- | Signal function thread with input 'u' and discardable output 's'.
--- Only the last output is stored.
-data SFThread u s = forall s' u'. Semigroup u' => SFThread
+-- | Signal function thread with input 'u', continuous output 's' and discrete
+-- output 'e'.
+data SFThread e u s = forall s' u' e'. Semigroup u' => SFThread
   { sfAsync :: !(Async ())
   , lastOutput :: !(TMVar s')
   , userInputs :: !(TMVar u')
@@ -152,46 +151,50 @@ data SFThread u s = forall s' u'. Semigroup u' => SFThread
   , lmapperSFThread :: u -> u'
   , paused :: !(TMVar UTCTime)
   , lastTime :: !(TVar UTCTime)
-  , logs :: TQueue Text
+  , sfEvents :: TQueue e'
+  , eventsMapperSFThread :: e' -> e
   }
 
-deriving instance Functor (SFThread u)
+deriving instance Functor (SFThread e u)
 
-instance Profunctor SFThread where
+instance Profunctor (SFThread e) where
   rmap = fmap
   lmap f SFThread{..} =
     let lmapperGameThread' = lmapperSFThread . f
      in SFThread{lmapperSFThread = lmapperGameThread', ..}
 
+mapDiscreteOutput :: (e -> e') -> SFThread e u s -> SFThread e' u s
+mapDiscreteOutput f SFThread{..} = SFThread{eventsMapperSFThread = f . eventsMapperSFThread, ..}
+
 -- | Non-retrying, sends input 'u' to the SFThread.
-sendSFThread :: SFThread u s -> u -> STM ()
+sendSFThread :: SFThread e u s -> u -> STM ()
 sendSFThread SFThread{userInputs, lmapperSFThread} =
   (\u -> tryTakeTMVar userInputs >>= maybe (writeTMVar userInputs u) (writeTMVar userInputs . (u <>))) . lmapperSFThread
 
 -- | Retries until an output 's' is available from SFThread, then
 -- removes and returns 's'.
-takeSFThread :: SFThread u s -> STM s
+takeSFThread :: SFThread e u s -> STM s
 takeSFThread SFThread{lastOutput, rmapperSFThread} =
   rmapperSFThread <$> takeTMVar lastOutput
 
 -- | Retries until the SFThread exits.
-waitSFThread :: SFThread u s -> STM (Maybe SomeException)
+waitSFThread :: SFThread e u s -> STM (Maybe SomeException)
 waitSFThread SFThread{..} =
   either Just (const Nothing) <$> waitCatchSTM sfAsync 
 
--- | Get all logs sent by the SFThread. Never retries.
-flushSFThreadLogs :: SFThread u s -> STM [Text] 
-flushSFThreadLogs SFThread{..} = flushTQueue logs
+-- | Get all events in the SFThread's queue. Never retries.
+flushSFThreadEvents :: SFThread e u s -> STM [e] 
+flushSFThreadEvents SFThread{..} = map eventsMapperSFThread <$> flushTQueue sfEvents
 
 -- | Run the passed signal function as an SFThread. Just like BrickThread, does
 -- not guarantee that the SFThread will be running for the entire continuation.
-withSFThread :: (Foldable f, Semigroup u) => SF (Event u) (s, f Text) -> (SFThread u s -> IO a) -> IO a
+withSFThread :: Semigroup u => SF (Event u) (s, Event e) -> (SFThread e u s -> IO a) -> IO a
 withSFThread sf k = do
   userInputs <- newEmptyTMVarIO
   lastOutput <- newEmptyTMVarIO
   paused <- newEmptyTMVarIO
   lastTime <- getCurrentTime >>= newTVarIO 
-  logs <- newTQueueIO
+  sfEvents <- newTQueueIO
 
   let
     sfThread = do
@@ -230,9 +233,9 @@ withSFThread sf k = do
         pure dt'
       pure (dt, Just e)
 
-    actuate _ (s, newLogs) = do
+    actuate _ (s, e) = do
       atomically $ writeTMVar lastOutput s
-      traverse_ (atomically . writeTQueue logs) newLogs 
+      event (pure ()) (atomically . writeTQueue sfEvents) e 
       pure False
 
   withAsync
@@ -241,4 +244,4 @@ withSFThread sf k = do
   where
     rmapperSFThread = id
     lmapperSFThread = id
-
+    eventsMapperSFThread = id
