@@ -46,7 +46,7 @@ data GameExit = ExitDesktop | ExitMainMenu
 
 makeLenses ''AppState
 
-withGameUI :: AppThread -> SimState -> (BrickThread (Maybe GameExit) (Either SimState [Text]) UserInput -> IO a) -> IO a
+withGameUI :: AppThread -> SimState -> (BrickThread (Maybe GameExit) (Either SimState [SimEvent]) UserInput -> IO a) -> IO a
 withGameUI th ss0 k = withBrickThread th theapp s0 $ k . mapBrickResult (^. gameExit)
   where
     s0 = AppState
@@ -58,7 +58,7 @@ withGameUI th ss0 k = withBrickThread th theapp s0 $ k . mapBrickResult (^. game
       }
 
 
-theapp :: TQueue UserInput -> App AppState (Either SimState [Text]) Name
+theapp :: TQueue UserInput -> App AppState (Either SimState [SimEvent]) Name
 theapp q = App {..}
   where
     appDraw s =
@@ -79,11 +79,12 @@ theapp q = App {..}
       traverse_ (liftIO . atomically . writeTQueue q) (directInput k m)
       continueWithoutRedraw -- input forwarded directly to simulation thread, not immediately visible
     appHandleEvent (AppEvent (Left ss)) = L.assign simState ss
-    appHandleEvent (AppEvent (Right newLogLines)) = do
+    appHandleEvent (AppEvent (Right se)) = do
+      let se' = mconcat se
       -- Prune existing logs
       logLines %= (\ll -> Seq.drop (max 0 $ length ll - 20) ll)
-      logIndex %= (+ length newLogLines)
-      logLines %= (<> Seq.fromList newLogLines)
+      logIndex %= (+ length (simLogs se'))
+      logLines %= (<> simLogs se')
 
     appHandleEvent _ = pure ()
 

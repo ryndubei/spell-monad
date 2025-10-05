@@ -1,6 +1,6 @@
 {-# LANGUAGE Arrows #-}
 {-# LANGUAGE BlockArguments #-}
-module Simulation (SimState(..), simSF, ObjectIdentifier(..), VisibleObject(..)) where
+module Simulation (SimState(..), SimEvent(..), simSF, ObjectIdentifier(..), VisibleObject(..)) where
 
 import FRP.Yampa
 import Input
@@ -8,6 +8,7 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import Simulation.Input
 import Control.Lens
+import Data.Sequence (Seq)
 
 -- | Tells the UI thread how an object should be drawn.
 data ObjectIdentifier = Player deriving (Eq, Ord, Show)
@@ -25,7 +26,21 @@ data SimState = SimState
                           -- if not necessarily in the centre of the screen
   }
 
-simSF :: SF (Event UserInput) (SimState, Event Text)
+data SimEvent = SimEvent
+  { simLogs :: Seq Text
+  , gameOver :: !Bool
+  }
+
+instance Semigroup SimEvent where
+  (<>) s1 s2 = SimEvent
+    { simLogs = simLogs s1 <> simLogs s2
+    , gameOver = gameOver s1 || gameOver s2
+    }
+
+instance Monoid SimEvent where
+  mempty = SimEvent { simLogs = mempty, gameOver = False }
+
+simSF :: SF (Event UserInput) (SimState, Event SimEvent)
 simSF = proc u -> do
   vInput <- arr (over moveVector (10 *^)) <<< processInput -< u
 
@@ -34,8 +49,9 @@ simSF = proc u -> do
   returnA -< (SimState
     { objects = [playerObject pos]
     , camera = (0, 0)
-    }, fmap (T.pack . show) u)
+    }, fmap evt u)
   where
+    evt u = SimEvent { gameOver = False, simLogs = pure . T.pack $ show u}
     playerObject pos = VisibleObject
         { position = pos
         , radius = 3
