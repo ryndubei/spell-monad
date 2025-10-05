@@ -125,10 +125,10 @@ drawSimState SimState{..} = border $ vBox (map hBox cells)
     emptyCell = str " "
 
     simToCell :: (Double, Double) -> (Int, Int)
-    simToCell (x,y) = (round x, round y)
+    simToCell (x,y) = (round (x*2), round y)
 
     cellToSim :: (Int, Int) -> (Double, Double)
-    cellToSim (x,y) = (fromIntegral x + 0.5, fromIntegral y + 0.5)
+    cellToSim (x,y) = ((fromIntegral x / 2) + 0.25, fromIntegral y + 0.5)
 
 directInput :: Key -> [Modifier] -> Maybe UserInput
 directInput KUp _ = Just $ mempty { moveY = 1 }
