@@ -17,5 +17,5 @@ main = do
   -- overrides the default cast direction (wherever the player is currently
   -- facing) with the given vector until the next call to 'face'.
   -- 0 would reset it back to the default.
-  face (p ^-^ p0) :: V2 -> Spell ()
+  (face :: V2 -> Spell ()) (p ^-^ p0) 
   firebolt

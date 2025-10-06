@@ -38,7 +38,7 @@ withPhysicalObject :: (PhysicalObjectTag -> Bool) -> (PhysicalObject %1 -> Spell
 main :: IO ()
 main = do
   _ <- withPhysicalObject (== LargeBoulder) $ \b -> do
-    spaceTree <- scan -- see Level3
+    spaceTree <- scan 1 -- see Level3
     let weakpoint = someTreeSearchAlgorithmImplementedByPlayer spaceTree
     (pos, b') <- getObjectPosition b
     b'' <- fireObject (weakpoint ^-^ pos) b'

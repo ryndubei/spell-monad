@@ -25,6 +25,6 @@ main = do
   -- The tree is heavily coupled to the game's state, hence it would be impossible
   -- to have this function in a non-Haskell implementation of the game that relies
   -- on some separate process to handle compilation.
-  spaceTree <- scan 1 :: Double -> Spell SpaceTree
+  spaceTree <- (scan :: Double -> Spell SpaceTree) 1
   let keyApproxCoordinate = someTreeSearchAlgorithmImplementedByPlayer spaceTree
   print keyApproxCoordinate -- and then the player navigates there and retrieves the key

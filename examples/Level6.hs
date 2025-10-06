@@ -1,4 +1,3 @@
-{-# LANGUAGE TypeData #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE LambdaCase #-}
@@ -13,7 +12,7 @@
 -- 'PossessT e' allows for extra effects that depend on what 'e' is
 possess :: (forall e. Enemy e -> Bool) -> (forall e. Enemy e -> PossessT e Spell a) -> Spell (Maybe (Poss a))
 
-type data Guard
+data Guard
 
 -- NOTE: not 100% sure if this kind of extensible GADT would actually work,
 -- did not test
