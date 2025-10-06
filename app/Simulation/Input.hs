@@ -9,6 +9,7 @@ import Control.Lens
 data SimInput = SimInput
   { simMoveX :: !Double
   , simMoveY :: !Double
+  , simJump :: !(Event ())
   }
 
 -- | norm (u ^. moveVector) = min 1 (norm u)
@@ -19,6 +20,7 @@ moveVector = lens (\SimInput{simMoveX, simMoveY} -> (simMoveX, simMoveY)) (\u (x
 processInput :: SF (Event UserInput) SimInput
 processInput = proc u -> do
   (simMoveX, simMoveY) <- smoothInput -< clampMagnitude . (^. userInputMoveVector) <$> u
+  let simJump = tagWith () . filterE id $ fmap jump u
 
   returnA -< SimInput{..}
 
@@ -56,7 +58,7 @@ smoothInput = decayFrom zeroVector
 
     moveTo v0 v0' =
       let disp = v0' ^-^ v0
-          udisp = if disp == zeroVector then disp else normalize disp
+          udisp = if disp /= zeroVector then normalize disp else disp
           -- t = s / v
           timeToCollide = norm disp / inputChangeRate
           a = inputChangeRate *^ udisp

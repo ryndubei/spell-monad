@@ -6,6 +6,7 @@ import Control.Lens
 data UserInput = UserInput
   { moveX :: !Double
   , moveY :: !Double
+  , jump :: !Bool
   } deriving Show
 
 userInputMoveVector :: Lens' UserInput (Double, Double)
@@ -16,10 +17,12 @@ instance Semigroup UserInput where
   (<>) u1 u2 = UserInput
     { moveX = moveX u1 + moveX u2
     , moveY = moveY u1 + moveY u2
+    , jump = jump u1 || jump u2
     }
 
 instance Monoid UserInput where
   mempty = UserInput
     { moveX = 0
     , moveY = 0
+    , jump = False
     }

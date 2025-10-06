@@ -9,6 +9,7 @@ import qualified Data.Text as T
 import Simulation.Input
 import Control.Lens
 import Data.Sequence (Seq)
+import qualified Data.Sequence as Seq
 
 -- | Tells the UI thread how an object should be drawn.
 data ObjectIdentifier = Player deriving (Eq, Ord, Show)
@@ -42,16 +43,22 @@ instance Monoid SimEvent where
 
 simSF :: SF (Event UserInput) (SimState, Event SimEvent)
 simSF = proc u -> do
-  vInput <- arr (over moveVector (10 *^)) <<< processInput -< u
+  simInput <- processInput -< u
 
-  pos <- trapezoidIntegral -< vInput ^. moveVector
+  rec
+    onGround <- iPre True <<< arr ((<= 0) . snd . playerPos) -< playerState
+    playerState <- player -< (simInput, onGround)
+
+  stateLogEvent <- repeatedly 1 () -< ()
+  let stateLog = tag stateLogEvent (Seq.fromList [T.pack $ show playerState])
+      stateLogSimEvent = (\l -> mempty {simLogs = l}) <$> stateLog
 
   returnA -< (SimState
-    { objects = [playerObject pos]
+    { objects = [playerObject (playerPos playerState)]
     , camera = (0, 0)
-    }, fmap evt u)
+    }, mergeBy (<>) (fmap evt u) stateLogSimEvent)
   where
-    evt u = SimEvent { gameOver = False, simLogs = pure . T.pack $ show u}
+    evt u = SimEvent { gameOver = False, simLogs = Seq.fromList [T.pack $ show u] }
     playerObject pos = VisibleObject
         { position = pos
         , radius = 3
@@ -59,3 +66,35 @@ simSF = proc u -> do
         , sdf = \(x,y) -> max (abs x - 1) (abs y - 1)
         , objIdentifier = Player
         }
+
+data PlayerState = PlayerState
+  { playerPos :: !(Double, Double)
+  , playerHealth :: !Rational
+  , playerMana :: !Rational
+  } deriving Show
+
+playerBaseVelocity :: Fractional a => a
+playerBaseVelocity = 10
+
+playerJumpVelocity :: Fractional a => a
+playerJumpVelocity = 10
+
+gravity :: Fractional a => a
+gravity = 9.8
+
+player :: SF (SimInput, Bool) PlayerState
+player = proc (u, onGround) -> do
+  let vx = fst $ playerBaseVelocity *^ (u ^. moveVector)
+
+  let jumpImpulse = gate (tag (simJump u) playerJumpVelocity) onGround
+
+  rec
+    hitImpulse <- arr (uncurry tag) <<< (edge *** iPre 0) -< (onGround, -vy)
+    vy <- impulseIntegral -< (if onGround then 0 else (-gravity), mergeBy (+) jumpImpulse hitImpulse)
+  pos <- trapezoidIntegral -< (vx, vy)
+
+  returnA -< PlayerState
+    { playerPos = pos
+    , playerHealth = 1
+    , playerMana = 1
+    }
