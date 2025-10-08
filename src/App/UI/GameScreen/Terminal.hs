@@ -9,6 +9,7 @@ module App.UI.GameScreen.Terminal
   -- * Lenses
   , prompt
   , blocked
+  , history
 
   -- * Operations
   , enterLine
