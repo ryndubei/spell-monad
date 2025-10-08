@@ -24,6 +24,7 @@ import qualified Data.Sequence as Seq
 import Brick.Widgets.Border
 import Brick.Widgets.Center
 import Control.Concurrent.STM
+import qualified Data.Text as T
 
 data Name
   = ExitDialogButtonYes
@@ -106,25 +107,37 @@ drawLogs logIdx sq = viewport LogViewport Vertical
   $ sq
 
 drawSimState :: DisplayRegion -> SimState -> Widget Name
-drawSimState (width, height) SimState{..} = vBox (map hBox cells)
+drawSimState (width, height) SimState{..} = vBox (map txt displayLines)
   where
-    (cameraCellX, cameraCellY) = simToCell camera
+    (cameraX, cameraY) = camera
 
-    cells :: [[Widget Name]]
-    cells = do
-      y <- map ((+ cameraCellY) . negate . subtract (height `div` 2)) [0 .. height]
-      pure do
-        x <- map ((+ cameraCellX) . subtract (width `div` 2)) [0 .. width]
-        let (x', y') = cellToSim (x,y)
-            dists = flip concatMap objects \VisibleObject{..} -> do
-              guard $ norm ((x', y') ^-^ position) <= radius
-              pure (sdf ((x', y') ^-^ position))
-            occupying = List.find (< 0.5) dists
-        -- TODO consider object identifier while drawing
-        pure $ if isJust occupying then occCell else emptyCell
+    x0 :: Double
+    x0 = cameraX - fromIntegral width / 4
 
-    occCell = str "█"
-    emptyCell = str " "
+    line :: Double -> Text
+    line y = flip (T.unfoldrN width) x0 \x -> Just . (, x + 0.5) $
+      let dists = flip concatMap objects \VisibleObject{..} -> do
+            guard $ norm ((x, y) ^-^ position) <= radius
+            pure (sdf ((x, y) ^-^ position))
+          occupying = List.find (< 0.5) dists
+      -- TODO consider object identifier while drawing
+       in if isJust occupying then occCell else emptyCell
+
+    displayLines :: [Text]
+    displayLines = do
+      y <- map ((+ cameraY) . fromIntegral . negate . subtract (height `div` 2)) [0 .. height]
+      pure (line y)
+      -- pure $ T.unfoldrN width \
+      --   let (x', y') = cellToSim (x,y)
+      --       dists = flip concatMap objects \VisibleObject{..} -> do
+      --         guard $ norm ((x', y') ^-^ position) <= radius
+      --         pure (sdf ((x', y') ^-^ position))
+      --       occupying = List.find (< 0.5) dists
+      --   -- TODO consider object identifier while drawing
+      --   pure $ if isJust occupying then occCell else emptyCell
+
+    occCell = '█'
+    emptyCell = ' '
 
     simToCell :: (Double, Double) -> (Int, Int)
     simToCell (x,y) = (round (x*2), round y)
