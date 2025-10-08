@@ -38,6 +38,7 @@ executable spell-monad-exe
     main-is:          Main.hs
     other-modules:    App.UI.MainMenu
                     , App.UI.GameScreen
+                    , App.UI.GameScreen.Terminal
                     , App.Thread
                     , Input
                     , Simulation
