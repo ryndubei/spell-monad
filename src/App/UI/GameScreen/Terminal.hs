@@ -191,13 +191,13 @@ cursorRight = do
 
 -- | Move the cursor to the specified column, clamped to [0, length inputLine].
 cursorTo :: MonadState Terminal m => Int -> m ()
-cursorTo col = do
+cursorTo col = use blocked >>= flip unless do
   l <- use inputLine
   cursorColumn .= clamp 0 (length l) col
 
 -- | Move the cursor to the specified end offset, clamped to [0, length inputLine]
 cursorToEnd :: MonadState Terminal m => Int -> m ()
-cursorToEnd col = do
+cursorToEnd col = use blocked >>= flip unless do
   l <- use inputLine
   cursorOffset .= clamp 0 (length l) col
 
