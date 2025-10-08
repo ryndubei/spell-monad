@@ -36,6 +36,9 @@ import Control.Monad.State.Class
 import Graphics.Vty.Input.Events
 
 -- | Expected to be used with a viewport.
+--
+-- TODO: not rely on using a viewport because it redraws constantly,
+-- will be horrible when history gets large
 data Terminal = Terminal
   { _history :: Seq Text -- ^ The visible terminal lines. Includes non-user output. Last output first. User inputs have 'prompt' prepended.
   , _inputHistory :: Seq Text -- ^ History for specifically inputs.
