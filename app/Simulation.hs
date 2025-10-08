@@ -1,6 +1,6 @@
 {-# LANGUAGE Arrows #-}
 {-# LANGUAGE BlockArguments #-}
-module Simulation (SimState(..), SimEvent(..), simSF, ObjectIdentifier(..), VisibleObject(..)) where
+module Simulation (SimState(..), SimEvent(..), simSF, ObjectIdentifier(..)) where
 
 import FRP.Yampa
 import Input
@@ -14,17 +14,10 @@ import qualified Data.Sequence as Seq
 -- | Tells the UI thread how an object should be drawn.
 data ObjectIdentifier = Player deriving (Eq, Ord, Show)
 
-data VisibleObject = VisibleObject
-  { position :: !(Double, Double) -- ^ centre
-  , radius :: Double -- ^ anything further away from 'position' should not be drawn
-  , sdf :: (Double, Double) -> Double -- ^ signed distance function to be drawn, relative to position
-  , objIdentifier :: ObjectIdentifier
-  }
-
 data SimState = SimState
-  { objects :: [VisibleObject]
-  , camera :: !(Double, Double) -- ^ the 'camera' position should always be visible, even
-                          -- if not necessarily in the centre of the screen
+  { sdf :: (Double, Double) -> (ObjectIdentifier, Double)
+  , cameraX :: !Double
+  , cameraY :: !Double
   }
 
 data SimEvent = SimEvent
@@ -54,18 +47,14 @@ simSF = proc u -> do
       stateLogSimEvent = (\l -> mempty {simLogs = l}) <$> stateLog
 
   returnA -< (SimState
-    { objects = [playerObject (playerPos playerState)]
-    , camera = (0, 0)
+    {
+      -- square of diameter 2
+      sdf = \(x,y) -> let (x',y') = (x,y) ^-^ playerPos playerState in (Player, max (abs x' - 1) (abs y' - 1))
+    , cameraX = 0
+    , cameraY = 0
     }, mergeBy (<>) (fmap evt u) stateLogSimEvent)
   where
     evt u = SimEvent { gameOver = False, simLogs = Seq.fromList [T.pack $ show u] }
-    playerObject pos = VisibleObject
-        { position = pos
-        , radius = 3
-        -- square of diameter 2
-        , sdf = \(x,y) -> max (abs x - 1) (abs y - 1)
-        , objIdentifier = Player
-        }
 
 data PlayerState = PlayerState
   { playerPos :: !(Double, Double)

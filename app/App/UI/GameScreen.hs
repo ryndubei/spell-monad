@@ -2,6 +2,7 @@
 {-# LANGUAGE BlockArguments #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE RecursiveDo #-}
+{-# LANGUAGE OverloadedStrings #-}
 module App.UI.GameScreen (withGameUI, GameExit(..)) where
 
 import Control.Monad.IO.Class
@@ -11,13 +12,8 @@ import Input
 import Brick
 import Control.Lens
 import Brick.Widgets.Dialog
-import Data.Foldable (traverse_, toList)
-import Graphics.Vty (defAttr, Event (..), Key (..), Modifier (..), Vty (outputIface), displayBounds, DisplayRegion)
+import Graphics.Vty (defAttr, Event (..), Key (..), Modifier (..), Vty (outputIface), displayBounds)
 import qualified Control.Lens as L
-import FRP.Yampa (VectorSpace(..))
-import Control.Monad
-import qualified Data.List as List
-import Data.Maybe
 import Data.Text (Text)
 import Data.Sequence (Seq)
 import qualified Data.Sequence as Seq
@@ -25,13 +21,16 @@ import Brick.Widgets.Border
 import Brick.Widgets.Center
 import Control.Concurrent.STM
 import qualified Data.Text as T
+import Data.Vector (Vector)
+import qualified Data.Vector as V
+import Graphics.Vty.Image
+import Data.Foldable
 
 data Name
   = ExitDialogButtonYes
   | ExitDialogButtonNo
   | TerminalViewport
   | LogViewport
-  | ObjId ObjectIdentifier
   deriving (Eq, Ord, Show)
 
 data AppState = AppState
@@ -70,7 +69,7 @@ theapp q = App {..}
       , maybe (gameWindow s) (`renderDialog` gameWindow s) (s ^. exitDialog)
       ]
 
-    gameWindow s = drawSimState (s ^. windowSize) (s ^. simState)
+    gameWindow s = drawSimState (appAttrMap s) (s ^. windowSize) (s ^. simState)
 
     appAttrMap _ = attrMap defAttr []
 
@@ -106,30 +105,39 @@ drawLogs logIdx sq = viewport LogViewport Vertical
   . fmap txt
   $ sq
 
-drawSimState :: DisplayRegion -> SimState -> Widget Name
-drawSimState (width, height) SimState{..} = vBox (map txt displayLines)
+drawSimState :: AttrMap -> DisplayRegion -> SimState -> Widget Name
+drawSimState attrmap (width, height) SimState{..} = raw displayedSimState
   where
-    (cameraX, cameraY) = camera
+    ys :: Vector Double
+    ys = V.map ((+ cameraY) . negate . fromIntegral) $ V.enumFromN (- (height `div` 2)) height
 
-    x0 :: Double
-    x0 = cameraX - fromIntegral width / 4
+    xs :: V.Vector Double
+    xs = V.map ((+ cameraX) . (/ 2) . fromIntegral) $ V.enumFromN (- (width `div` 2)) width
 
-    line :: Double -> Text
-    line y = flip (T.unfoldrN width) x0 \x -> Just . (, x + 0.5) $
-      let dists = flip concatMap objects \VisibleObject{..} -> do
-            guard $ norm ((x, y) ^-^ position) <= radius
-            pure (sdf ((x, y) ^-^ position))
-          occupying = List.find (< 0.5) dists
-      -- TODO consider object identifier while drawing
-       in if isJust occupying then occCell else emptyCell
+    dists :: V.Vector (V.Vector (ObjectIdentifier, Double))
+    dists = flip V.map ys \y -> flip V.map xs \x -> sdf (x,y)
 
-    displayLines :: [Text]
-    displayLines = do
-      y <- map ((+ cameraY) . fromIntegral . negate . subtract (height `div` 2)) [0 .. height]
-      pure (line y)
+    -- ObjectIdentifiers together with the string lengths to draw
+    lineSliceLengths :: V.Vector (V.Vector (Maybe ObjectIdentifier, Int))
+    lineSliceLengths = flip V.map dists $ V.unfoldrN width \row ->
+      let u = V.uncons row
+      in case u of
+        Just (hrow, trow) ->
+          let toDraw (oid, d) = if d < 0.5 then Just oid else Nothing
+              (lrow, rrow) = V.span (\t -> toDraw t == toDraw hrow) trow
+           in Just ((toDraw hrow, 1 + length lrow), rrow)
+        Nothing -> Nothing
 
-    occCell = '█'
-    emptyCell = ' '
+    lineSlice :: Maybe ObjectIdentifier -> Int -> Image
+    -- cannot simply do "translateX len mempty". I don't know why.
+    lineSlice Nothing len = translateX len $ text' defAttr mempty
+    lineSlice (Just oid) len = text' (attrMapLookup (objectIdToAttr oid) attrmap) $ T.replicate len "█"
+
+    displayedSimState :: Image
+    displayedSimState = V.foldr' vertJoin mempty $ V.map (V.foldr' horizJoin mempty . V.map (uncurry lineSlice)) lineSliceLengths
+
+objectIdToAttr :: ObjectIdentifier -> AttrName
+objectIdToAttr Player = attrName "Player"
 
 directInput :: Key -> [Modifier] -> Maybe UserInput
 directInput KUp _ = Just $ mempty { moveY = 1 }
