@@ -140,13 +140,16 @@ historyNext = do
   modified <- use lineChanged
   h <- use inputHistory
 
-  case h Seq.!? (idx - 1) of
-    -- no history to go forward to, do nothing
-    Nothing -> pure ()
-    Just e -> do
-      when modified $ inputHistory %= Seq.insertAt idx (T.pack $ toList l)
-        -- no need to correct the index this time since insertAt only offsets the right side
+  -- no need to correct the index this time since insertAt only offsets the right side
+  when modified $ inputHistory %= Seq.insertAt (max 0 idx) (T.pack $ toList l)
 
+  case h Seq.!? (idx - 1) of
+    -- no history to go forward to, so just empty the line
+    Nothing -> do
+      inputLine .= mempty
+      inputHistoryIndex .= (-1)
+      lineChanged .= False
+    Just e -> do
       -- switch to next entry 
       inputHistoryIndex %= subtract 1
       -- replace input with line from history
