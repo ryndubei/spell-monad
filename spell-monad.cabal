@@ -19,38 +19,18 @@ common warnings
 
 library
     import:           warnings
-    exposed-modules:  Spell
-                    , Spell.Exception
-                    , Prelude.Spell
-    -- other-modules:
-    -- other-extensions:
-    build-depends:    base
-                    , exceptions
-                    , free
-                    , mtl
-                    , transformers
-    hs-source-dirs:   src
-    default-language: GHC2021
-
-executable spell-monad-exe
-    import:           warnings
-    default-language: GHC2021
-    main-is:          Main.hs
-    other-modules:    App.UI.MainMenu
+    exposed-modules:  App.UI.MainMenu
                     , App.UI.GameScreen
                     , App.UI.GameScreen.Terminal
                     , App.Thread
                     , Input
                     , Simulation
                     , Simulation.Input
-    hs-source-dirs:   app
     default-extensions:
         Arrows
         TypeFamilies
         DataKinds
-    ghc-options: -threaded
     build-depends:    base
-                    , spell-monad
                     , async
                     , bearriver ^>= 0.15
                     , brick
@@ -84,18 +64,18 @@ executable spell-monad-exe
                     , vty
                     , vty-crossplatform
 
-test-suite spell-monad-test
+    hs-source-dirs:   src
+    default-language: GHC2021
+
+executable spell-monad-exe
     import:           warnings
     default-language: GHC2021
-    -- other-extensions:
-    type:             exitcode-stdio-1.0
-    hs-source-dirs:   test
     main-is:          Main.hs
+    other-modules:   
+    hs-source-dirs:   app
+    ghc-options: -threaded
     build-depends:    base
-                    , containers
                     , spell-monad
-                    , ansi-terminal
-                    , free
-                    , hint
+                    , async
                     , mtl
-                    , transformers
+                    , stm
