@@ -127,23 +127,9 @@ drawSimState (width, height) SimState{..} = vBox (map txt displayLines)
     displayLines = do
       y <- map ((+ cameraY) . fromIntegral . negate . subtract (height `div` 2)) [0 .. height]
       pure (line y)
-      -- pure $ T.unfoldrN width \
-      --   let (x', y') = cellToSim (x,y)
-      --       dists = flip concatMap objects \VisibleObject{..} -> do
-      --         guard $ norm ((x', y') ^-^ position) <= radius
-      --         pure (sdf ((x', y') ^-^ position))
-      --       occupying = List.find (< 0.5) dists
-      --   -- TODO consider object identifier while drawing
-      --   pure $ if isJust occupying then occCell else emptyCell
 
     occCell = '█'
     emptyCell = ' '
-
-    simToCell :: (Double, Double) -> (Int, Int)
-    simToCell (x,y) = (round (x*2), round y)
-
-    cellToSim :: (Int, Int) -> (Double, Double)
-    cellToSim (x,y) = ((fromIntegral x / 2) + 0.25, fromIntegral y + 0.5)
 
 directInput :: Key -> [Modifier] -> Maybe UserInput
 directInput KUp _ = Just $ mempty { moveY = 1 }
