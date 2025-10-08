@@ -111,7 +111,7 @@ pushOutput t = history %= (t Seq.<|)
 
 -- | Go back in history, backing up the current line if modified.
 historyPrev, historyNext :: MonadState Terminal m => m ()
-historyPrev = do
+historyPrev = use blocked >>= \b -> unless b do
   l <- use inputLine
   idx <- use inputHistoryIndex
   modified <- use lineChanged
@@ -134,8 +134,11 @@ historyPrev = do
       -- replace input with line from history
       inputLine .= Seq.fromList (T.unpack e)
       lineChanged .= False
+      
+      -- cursor may become invalid when we go backwards/forward in history
+      cursorColumn %= clamp 0 (T.length e)  
 -- By duality...
-historyNext = do
+historyNext = use blocked >>= \b -> unless b do
   l <- use inputLine
   idx <- use inputHistoryIndex
   modified <- use lineChanged
@@ -149,6 +152,7 @@ historyNext = do
     Nothing -> do
       inputLine .= mempty
       inputHistoryIndex .= (-1)
+      cursorColumn .= 0
       lineChanged .= False
     Just e -> do
       -- switch to next entry 
@@ -156,6 +160,7 @@ historyNext = do
       -- replace input with line from history
       inputLine .= Seq.fromList (T.unpack e)
       lineChanged .= False
+      cursorColumn %= clamp 0 (T.length e)  
 
 -- | Delete the character before the cursor, if any.
 deleteChar :: MonadState Terminal m => m ()
