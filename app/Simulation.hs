@@ -10,9 +10,13 @@ import Simulation.Input
 import Control.Lens
 import Data.Sequence (Seq)
 import qualified Data.Sequence as Seq
+import GHC.Generics
+import Control.DeepSeq
 
 -- | Tells the UI thread how an object should be drawn.
-data ObjectIdentifier = Player deriving (Eq, Ord, Show)
+data ObjectIdentifier = Player deriving (Eq, Ord, Show, Generic)
+
+instance NFData ObjectIdentifier
 
 data SimState = SimState
   { sdf :: (Double, Double) -> (ObjectIdentifier, Double)

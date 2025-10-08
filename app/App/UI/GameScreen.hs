@@ -25,6 +25,7 @@ import Data.Vector (Vector)
 import qualified Data.Vector as V
 import Graphics.Vty.Image
 import Data.Foldable
+import Control.Parallel.Strategies (parMap, rdeepseq)
 
 data Name
   = ExitDialogButtonYes
@@ -118,8 +119,8 @@ drawSimState attrmap (width, height) SimState{..} = raw displayedSimState
     dists = flip V.map ys \y -> flip V.map xs \x -> sdf (x,y)
 
     -- ObjectIdentifiers together with the string lengths to draw
-    lineSliceLengths :: V.Vector (V.Vector (Maybe ObjectIdentifier, Int))
-    lineSliceLengths = flip V.map dists $ V.unfoldrN width \row ->
+    lineSliceLengths :: [V.Vector (Maybe ObjectIdentifier, Int)]
+    lineSliceLengths = flip (parMap rdeepseq) (V.toList dists) $ V.unfoldrN width \row ->
       let u = V.uncons row
       in case u of
         Just (hrow, trow) ->
@@ -134,7 +135,7 @@ drawSimState attrmap (width, height) SimState{..} = raw displayedSimState
     lineSlice (Just oid) len = text' (attrMapLookup (objectIdToAttr oid) attrmap) $ T.replicate len "█"
 
     displayedSimState :: Image
-    displayedSimState = V.foldr' vertJoin mempty $ V.map (V.foldr' horizJoin mempty . V.map (uncurry lineSlice)) lineSliceLengths
+    displayedSimState = foldr' vertJoin mempty $ map (V.foldr' horizJoin mempty . V.map (uncurry lineSlice)) lineSliceLengths
 
 objectIdToAttr :: ObjectIdentifier -> AttrName
 objectIdToAttr Player = attrName "Player"
