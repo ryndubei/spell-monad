@@ -4,6 +4,7 @@
 module App.Thread
   ( AppThread
   , withAppThread
+  , appThreadVty
   , BrickThread
   , withBrickThread
   , sendBrickEvent
@@ -42,6 +43,9 @@ data AppThread = AppThread
   { vty :: !(TVar Vty)
   , rebuildVty :: !(IO Vty)
   }
+
+appThreadVty :: AppThread -> IO Vty
+appThreadVty = readTVarIO . vty
 
 withAppThread :: (AppThread -> IO a) -> IO a
 withAppThread f = do

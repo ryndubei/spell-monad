@@ -1,6 +1,7 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE BlockArguments #-}
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE RecursiveDo #-}
 module App.UI.GameScreen (withGameUI, GameExit(..)) where
 
 import Control.Monad.IO.Class
@@ -8,11 +9,10 @@ import App.Thread
 import Simulation
 import Input
 import Brick
-import Control.Lens (makeLenses)
+import Control.Lens
 import Brick.Widgets.Dialog
 import Data.Foldable (traverse_, toList)
-import Control.Lens.Operators
-import Graphics.Vty (defAttr, Event (..), Key (..), Modifier (..))
+import Graphics.Vty (defAttr, Event (..), Key (..), Modifier (..), Vty (outputIface), displayBounds, DisplayRegion)
 import qualified Control.Lens as L
 import FRP.Yampa (VectorSpace(..))
 import Control.Monad
@@ -28,7 +28,6 @@ import Control.Concurrent.STM
 data Name
   = ExitDialogButtonYes
   | ExitDialogButtonNo
-  | GameViewport
   | TerminalViewport
   | LogViewport
   | ObjId ObjectIdentifier
@@ -40,6 +39,7 @@ data AppState = AppState
   , _simState :: !SimState
   , _logLines :: Seq Text
   , _logIndex :: !Int
+  , _windowSize :: DisplayRegion
   }
 
 data GameExit = ExitDesktop | ExitMainMenu
@@ -47,16 +47,18 @@ data GameExit = ExitDesktop | ExitMainMenu
 makeLenses ''AppState
 
 withGameUI :: AppThread -> SimState -> (BrickThread (Maybe GameExit) (Either SimState [SimEvent]) UserInput -> IO a) -> IO a
-withGameUI th ss0 k = withBrickThread th theapp s0 $ k . mapBrickResult (^. gameExit)
-  where
-    s0 = AppState
-      { _gameExit = Nothing
-      , _exitDialog = Nothing
-      , _simState = ss0
-      , _logLines = mempty
-      , _logIndex = 0
-      }
-
+withGameUI th ss0 k = do
+  v <- appThreadVty th
+  _windowSize <- displayBounds (outputIface v)
+  let s0 = AppState
+        { _gameExit = Nothing
+        , _exitDialog = Nothing
+        , _simState = ss0
+        , _logLines = mempty
+        , _logIndex = 0
+        , _windowSize
+        }
+  withBrickThread th theapp s0 $ k . mapBrickResult (^. gameExit)
 
 theapp :: TQueue UserInput -> App AppState (Either SimState [SimEvent]) Name
 theapp q = App {..}
@@ -67,7 +69,7 @@ theapp q = App {..}
       , maybe (gameWindow s) (`renderDialog` gameWindow s) (s ^. exitDialog)
       ]
 
-    gameWindow s = viewport GameViewport Both (drawSimState (s ^. simState))
+    gameWindow s = drawSimState (s ^. windowSize) (s ^. simState)
 
     appAttrMap _ = attrMap defAttr []
 
@@ -85,6 +87,8 @@ theapp q = App {..}
       logLines %= (\ll -> Seq.drop (max 0 $ length ll - 20) ll)
       logIndex %= (+ length (simLogs se'))
       logLines %= (<> simLogs se')
+    appHandleEvent (VtyEvent (EvResize w h)) =
+      windowSize .= (w,h)
 
     appHandleEvent _ = pure ()
 
@@ -101,25 +105,23 @@ drawLogs logIdx sq = viewport LogViewport Vertical
   . fmap txt
   $ sq
 
-drawSimState :: SimState -> Widget Name
--- the border is temporary for easier viewing, should be removed when we cover the whole screen
-drawSimState SimState{..} = border $ vBox (map hBox cells)
+drawSimState :: DisplayRegion -> SimState -> Widget Name
+drawSimState (width, height) SimState{..} = vBox (map hBox cells)
   where
+    (cameraCellX, cameraCellY) = simToCell camera
+
     cells :: [[Widget Name]]
-    -- TODO optimise
     cells = do
-      y <- reverse [(-30) .. 30]
+      y <- map ((+ cameraCellY) . negate . subtract (height `div` 2)) [0 .. height]
       pure do
-        x <- [(-30) .. 30]
-        let hasCamera = (x,y) == simToCell camera
-            f = if hasCamera then visible else id
-            (x', y') = cellToSim (x,y)
+        x <- map ((+ cameraCellX) . subtract (width `div` 2)) [0 .. width]
+        let (x', y') = cellToSim (x,y)
             dists = flip concatMap objects \VisibleObject{..} -> do
               guard $ norm ((x', y') ^-^ position) <= radius
               pure (sdf ((x', y') ^-^ position))
             occupying = List.find (< 0.5) dists
         -- TODO consider object identifier while drawing
-        pure . f $ if isJust occupying then occCell else emptyCell
+        pure $ if isJust occupying then occCell else emptyCell
 
     occCell = str "█"
     emptyCell = str " "
