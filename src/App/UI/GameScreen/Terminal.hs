@@ -135,8 +135,9 @@ historyPrev = use blocked >>= \b -> unless b do
       inputLine .= Seq.fromList (T.unpack e)
       lineChanged .= False
       
-      -- cursor may become invalid when we go backwards/forward in history
-      cursorColumn %= clamp 0 (T.length e)  
+      -- cursor may become invalid when we go backwards/forward in history.
+      -- Best to just reset it to 0.
+      cursorOffset .= 0
 -- By duality...
 historyNext = use blocked >>= \b -> unless b do
   l <- use inputLine
@@ -160,7 +161,7 @@ historyNext = use blocked >>= \b -> unless b do
       -- replace input with line from history
       inputLine .= Seq.fromList (T.unpack e)
       lineChanged .= False
-      cursorColumn %= clamp 0 (T.length e)  
+      cursorOffset .= 0
 
 -- | Delete the character before the cursor, if any.
 deleteChar :: MonadState Terminal m => m ()
