@@ -3,8 +3,14 @@
 module App.UI.GameScreen.Terminal
   ( Terminal
   , drawTerminal
-  , block
-  , unblock
+  , handleTerminalEvent
+  , terminal
+
+  -- * Lenses
+  , prompt
+  , blocked
+
+  -- * Operations
   , enterLine
   , insertChar
   , deleteChar
@@ -15,7 +21,6 @@ module App.UI.GameScreen.Terminal
   , cursorTo
   , cursorToEnd
   , pushOutput
-  , handleTerminalEvent
   ) where
 
 import Data.Sequence (Seq)
@@ -39,8 +44,20 @@ data Terminal = Terminal
                           -- we can return to it.
   , _inputLine :: Seq Char
   , _prompt :: String
-  , _cursorOffset :: !Int -- ^ Offset from the end of inputLine, positive.
+  , _cursorOffset :: !Int -- ^ Offset from the end of inputLine, nonnegative.
   , _blocked :: !Bool
+  }
+
+terminal :: Terminal
+terminal = Terminal
+  { _history = mempty
+  , _inputHistory = mempty
+  , _inputHistoryIndex = -1
+  , _lineChanged = False
+  , _inputLine = mempty
+  , _prompt = mempty
+  , _cursorOffset = 0
+  , _blocked = False
   }
 
 -- | The next character will be inserted at this index.
@@ -48,12 +65,6 @@ cursorColumn :: Lens' Terminal Int
 cursorColumn = lens (\Terminal{_cursorOffset, _inputLine} -> length _inputLine - _cursorOffset) (\t col -> t { _cursorOffset = length (_inputLine t) - col })
 
 makeLenses ''Terminal
-
-block :: MonadState Terminal m => m ()
-block = blocked .= True
-
-unblock :: MonadState Terminal m => m ()
-unblock = blocked .= False
 
 -- | Empty the input line and append the contents to the history.
 -- (represents entering the line)

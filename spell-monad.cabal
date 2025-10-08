@@ -79,3 +79,16 @@ executable spell-monad-exe
                     , async
                     , mtl
                     , stm
+
+executable terminal-demo
+    import:           warnings
+    default-language: GHC2021
+    hs-source-dirs:   demos
+    main-is:          TerminalDemo.hs
+    build-depends:    base
+                    , spell-monad
+                    , brick
+                    , lens
+                    , stm
+                    , vty
+    ghc-options: -threaded
