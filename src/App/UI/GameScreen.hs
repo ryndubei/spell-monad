@@ -11,7 +11,6 @@ import Simulation
 import Input
 import Brick
 import Control.Lens
-import Brick.Widgets.Dialog
 import Graphics.Vty (defAttr, Event (..), Key (..), Modifier (..), Vty (outputIface), displayBounds)
 import qualified Control.Lens as L
 import Data.Text (Text)
@@ -26,9 +25,14 @@ import qualified Data.Vector as V
 import Graphics.Vty.Image
 import Data.Foldable
 import Control.Parallel.Strategies (parMap, rdeepseq)
+import App.UI.GameScreen.Terminal
+import Control.Monad
+import Graphics.Vty.Input
 
 data Name
-  = TerminalViewport
+  = TerminalCursor
+  | TerminalInputLine
+  | TerminalViewport
   | LogViewport
   deriving (Eq, Ord, Show)
 
@@ -38,7 +42,10 @@ data AppState = AppState
   , _logLines :: Seq Text
   , _logIndex :: !Int
   , _windowSize :: DisplayRegion
+  , _terminalFocus :: TerminalFocus
   }
+
+data TerminalFocus = Invisible | VisibleUnfocused | VisibleFocused deriving Eq
 
 data GameExit = ExitDesktop | ExitMainMenu
 
@@ -54,6 +61,7 @@ withGameUI th ss0 k = do
         , _logLines = mempty
         , _logIndex = 0
         , _windowSize
+        , _terminalFocus = VisibleUnfocused
         }
   withBrickThread th theapp s0 $ k . mapBrickResult (^. gameExit)
 
@@ -62,9 +70,11 @@ theapp q = App {..}
   where
     appDraw s =
       [
-        vLimitPercent 20 . hCenterLayer . border $ drawLogs (s ^. logIndex) (s ^. logLines)
+        (if s ^. terminalFocus == Invisible then const emptyWidget else id) . vLimitPercent 20 . hCenterLayer . border . withVScrollBars OnRight . clickable TerminalViewport . viewport TerminalViewport Vertical $ drawTerminal TerminalCursor term
       , gameWindow s
       ]
+
+    term = (prompt .~ "Spell> ") terminal
 
     gameWindow s = drawSimState (appAttrMap s) (s ^. windowSize) (s ^. simState)
 
@@ -87,11 +97,20 @@ theapp q = App {..}
     appHandleEvent (VtyEvent (EvResize w h)) =
       windowSize .= (w,h)
 
+    appHandleEvent (MouseDown TerminalViewport BScrollUp _ _) = undefined
+    appHandleEvent (MouseDown TerminalViewport BScrollDown _ _) = undefined
+    appHandleEvent (MouseDown TerminalViewport BLeft _ _) =
+      terminalFocus .= VisibleFocused
+
     appHandleEvent _ = pure ()
 
-    appChooseCursor = neverShowCursor
+    appChooseCursor s =
+      if s ^. terminalFocus == VisibleFocused
+        then showCursorNamed TerminalViewport
+        else pure Nothing
 
-    appStartEvent = pure ()
+    appStartEvent = do
+      makeVisible TerminalCursor
 
 drawLogs :: Int -> Seq Text -> Widget Name
 drawLogs logIdx sq = viewport LogViewport Vertical

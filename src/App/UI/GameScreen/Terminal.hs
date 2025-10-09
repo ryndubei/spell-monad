@@ -201,8 +201,12 @@ cursorToEnd col = use blocked >>= flip unless do
   l <- use inputLine
   cursorOffset .= clamp 0 (length l) col
 
-drawTerminal :: n -> Terminal -> Widget n
-drawTerminal n t = showCursor n cursorLoc (vBox hs <=> str finalLine)
+drawTerminal
+  :: Ord n
+  => n -- ^ Cursor name
+  -> Terminal
+  -> Widget n
+drawTerminal cursorName t = showCursor cursorName cursorLoc (vBox hs <=> str finalLine)
   where
     hs = map txt . toList $ Seq.reverse (t ^. history)
     finalLine = (t ^. prompt) ++ toList (t ^. inputLine)
