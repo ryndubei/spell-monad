@@ -28,15 +28,12 @@ import Data.Foldable
 import Control.Parallel.Strategies (parMap, rdeepseq)
 
 data Name
-  = ExitDialogButtonYes
-  | ExitDialogButtonNo
-  | TerminalViewport
+  = TerminalViewport
   | LogViewport
   deriving (Eq, Ord, Show)
 
 data AppState = AppState
   { _gameExit :: !(Maybe GameExit)
-  , _exitDialog :: !(Maybe (Dialog () Name))
   , _simState :: !SimState
   , _logLines :: Seq Text
   , _logIndex :: !Int
@@ -53,7 +50,6 @@ withGameUI th ss0 k = do
   _windowSize <- displayBounds (outputIface v)
   let s0 = AppState
         { _gameExit = Nothing
-        , _exitDialog = Nothing
         , _simState = ss0
         , _logLines = mempty
         , _logIndex = 0
@@ -67,7 +63,7 @@ theapp q = App {..}
     appDraw s =
       [
         vLimitPercent 20 . hCenterLayer . border $ drawLogs (s ^. logIndex) (s ^. logLines)
-      , maybe (gameWindow s) (`renderDialog` gameWindow s) (s ^. exitDialog)
+      , gameWindow s
       ]
 
     gameWindow s = drawSimState (appAttrMap s) (s ^. windowSize) (s ^. simState)
