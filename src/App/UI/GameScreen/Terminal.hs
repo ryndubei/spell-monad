@@ -10,6 +10,7 @@ module App.UI.GameScreen.Terminal
   , prompt
   , blocked
   , history
+  , forceVisibleInputLine
 
   -- * Operations
   , enterLine
@@ -34,6 +35,11 @@ import Data.Foldable
 import Control.Monad
 import Control.Monad.State.Class
 import Graphics.Vty.Input.Events
+import Data.ByteString (ByteString)
+import qualified Data.ByteString.Char8 as BC
+import Data.Maybe (maybeToList, fromMaybe)
+import Control.Monad.Fix
+import Data.Bifunctor
 
 -- | Expected to be used with a viewport.
 --
@@ -50,6 +56,7 @@ data Terminal = Terminal
   , _prompt :: String
   , _cursorOffset :: !Int -- ^ Offset from the end of inputLine, nonnegative.
   , _blocked :: !Bool
+  , _forceVisibleInputLine :: !Bool -- ^ Whether to make a visibility request on the input line.
   }
 
 terminal :: Terminal
@@ -62,6 +69,7 @@ terminal = Terminal
   , _prompt = mempty
   , _cursorOffset = 0
   , _blocked = False
+  , _forceVisibleInputLine = False
   }
 
 -- | The next character will be inserted at this index.
@@ -106,6 +114,33 @@ insertChar c = do
     col <- use cursorColumn
     inputLine %= Seq.insertAt col c
     lineChanged .= True
+
+insertLines :: MonadState Terminal m => ByteString -> m [Text]
+insertLines l = do
+  b <- use blocked
+  if b then pure [] else do
+    col <- use cursorColumn
+    -- choice of foldr is deliberate so we insert last-first,
+    -- means we can keep using the same column index
+    inputLine %= BC.foldr (\c -> (Seq.insertAt col c .)) id l
+
+    fix \k -> do
+      iln <- use inputLine
+      if null iln
+        then pure []
+        else do
+          let
+            -- remove at least one newline on each iteration so that this terminates
+            (ilnl, ilnr) = second (Seq.drop 1) $ Seq.spanl (/= '\n') iln
+          if null ilnr
+            then
+              -- we are on the last line, nothing remaining to insert
+              pure []
+            else do
+              inputLine .= ilnl
+              t <- enterLine
+              inputLine .= ilnr
+              (fromMaybe mempty t :) <$> k
 
 -- | Push a non-input string immediately to the history (will not be shown
 -- when repeating previous commands with up arrow). Represents output.
@@ -201,8 +236,12 @@ cursorToEnd col = use blocked >>= flip unless do
   l <- use inputLine
   cursorOffset .= clamp 0 (length l) col
 
-drawTerminal :: n -> Terminal -> Widget n
-drawTerminal n t = showCursor n cursorLoc (vBox hs <=> str finalLine)
+drawTerminal
+  :: Ord n
+  => n -- ^ Cursor name
+  -> Terminal
+  -> Widget n
+drawTerminal cursorName t = showCursor cursorName cursorLoc (vBox hs <=> (if t ^. forceVisibleInputLine then visible else id) (str finalLine))
   where
     hs = map txt . toList $ Seq.reverse (t ^. history)
     finalLine = (t ^. prompt) ++ toList (t ^. inputLine)
@@ -210,16 +249,19 @@ drawTerminal n t = showCursor n cursorLoc (vBox hs <=> str finalLine)
     cursorX = length (t ^. prompt) + (t ^. cursorColumn)
     cursorY = length (t ^. history)
 
-handleTerminalEvent :: MonadState Terminal m => BrickEvent n e -> m (Maybe Text)
-handleTerminalEvent (VtyEvent (EvKey KUp _)) = Nothing <$ historyPrev
-handleTerminalEvent (VtyEvent (EvKey KDown _)) = Nothing <$ historyNext
-handleTerminalEvent (VtyEvent (EvKey KLeft _)) = Nothing <$ cursorLeft
-handleTerminalEvent (VtyEvent (EvKey KRight _)) = Nothing <$ cursorRight
-handleTerminalEvent (VtyEvent (EvKey (KChar '\t') _)) = pure Nothing -- TODO: tab completion?
-handleTerminalEvent (VtyEvent (EvKey (KChar c) _)) = Nothing <$ insertChar c 
-handleTerminalEvent (VtyEvent (EvKey KDel _)) = Nothing <$ deleteChar
-handleTerminalEvent (VtyEvent (EvKey KBS _)) = Nothing <$ deleteChar
-handleTerminalEvent (VtyEvent (EvKey KHome _)) = Nothing <$ cursorTo 0
-handleTerminalEvent (VtyEvent (EvKey KEnd _)) = Nothing <$ cursorToEnd 0
-handleTerminalEvent (VtyEvent (EvKey KEnter _)) = enterLine
-handleTerminalEvent _ = pure Nothing
+handleTerminalEvent :: MonadState Terminal m => BrickEvent n e -> m [Text]
+handleTerminalEvent (VtyEvent (EvKey KUp _)) = [] <$ historyPrev
+handleTerminalEvent (VtyEvent (EvKey KDown _)) = [] <$ historyNext
+handleTerminalEvent (VtyEvent (EvKey KLeft _)) = [] <$ cursorLeft
+handleTerminalEvent (VtyEvent (EvKey KRight _)) = [] <$ cursorRight
+handleTerminalEvent (VtyEvent (EvKey (KChar '\t') _)) = pure [] -- TODO: tab completion?
+handleTerminalEvent (VtyEvent (EvKey (KChar c) _)) = [] <$ insertChar c 
+handleTerminalEvent (VtyEvent (EvKey KDel _)) = [] <$ deleteChar
+handleTerminalEvent (VtyEvent (EvKey KBS _)) = [] <$ deleteChar
+handleTerminalEvent (VtyEvent (EvKey KHome _)) = [] <$ cursorTo 0
+handleTerminalEvent (VtyEvent (EvKey KEnd _)) = [] <$ cursorToEnd 0
+handleTerminalEvent (VtyEvent (EvKey KEnter _)) = maybeToList <$> enterLine
+handleTerminalEvent (VtyEvent (EvPaste bs)) = do
+  let bs' = BC.filter (/= '\t') bs
+  insertLines bs'
+handleTerminalEvent _ = pure []
