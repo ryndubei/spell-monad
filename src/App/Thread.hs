@@ -37,6 +37,7 @@ import FRP.Yampa
 import Data.Time
 import Control.Concurrent
 import Data.Maybe
+import Graphics.Vty.Output
 
 -- | Initialised terminal resources.
 data AppThread = AppThread
@@ -68,11 +69,13 @@ withAppThread f = do
     ourMkVty = do
       v <- mkVty defaultConfig
 
-      -- TODO: possibly make this a settings option
       -- Enable bracketed paste
-      -- let output = outputIface v
-      -- when (supportsMode output BracketedPaste) $
-      --   setMode output BracketedPaste True
+      let output = outputIface v
+      when (supportsMode output BracketedPaste) $
+        setMode output BracketedPaste True
+      -- Enable mouse click reporting
+      when (supportsMode output Mouse) $
+        setMode output Mouse True
 
       pure v
 

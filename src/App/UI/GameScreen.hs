@@ -11,7 +11,7 @@ import Simulation
 import Input
 import Brick
 import Control.Lens
-import Graphics.Vty (defAttr, Event (..), Key (..), Modifier (..), Vty (outputIface), displayBounds)
+import Graphics.Vty (defAttr, Vty (outputIface), displayBounds)
 import qualified Control.Lens as L
 import Data.Text (Text)
 import Data.Sequence (Seq)
@@ -26,13 +26,14 @@ import Graphics.Vty.Image
 import Data.Foldable
 import Control.Parallel.Strategies (parMap, rdeepseq)
 import App.UI.GameScreen.Terminal
-import Control.Monad
 import Graphics.Vty.Input
+import Control.Monad
 
 data Name
   = TerminalCursor
   | TerminalInputLine
   | TerminalViewport
+  | GameWindow
   | LogViewport
   deriving (Eq, Ord, Show)
 
@@ -43,6 +44,7 @@ data AppState = AppState
   , _logIndex :: !Int
   , _windowSize :: DisplayRegion
   , _terminalFocus :: TerminalFocus
+  , _term :: Terminal
   }
 
 data TerminalFocus = Invisible | VisibleUnfocused | VisibleFocused deriving Eq
@@ -62,6 +64,7 @@ withGameUI th ss0 k = do
         , _logIndex = 0
         , _windowSize
         , _terminalFocus = VisibleUnfocused
+        , _term = (prompt .~ "Spell> ") terminal
         }
   withBrickThread th theapp s0 $ k . mapBrickResult (^. gameExit)
 
@@ -70,13 +73,19 @@ theapp q = App {..}
   where
     appDraw s =
       [
-        (if s ^. terminalFocus == Invisible then const emptyWidget else id) . vLimitPercent 20 . hCenterLayer . border . withVScrollBars OnRight . clickable TerminalViewport . viewport TerminalViewport Vertical $ drawTerminal TerminalCursor term
+        if s ^. terminalFocus == Invisible
+          then emptyWidget
+          else vLimit 10
+             . hCenterLayer
+             . border
+             . withVScrollBars OnRight
+             . clickable TerminalViewport
+             . viewport TerminalViewport Vertical
+             $ drawTerminal TerminalCursor (s ^. term)
       , gameWindow s
       ]
 
-    term = (prompt .~ "Spell> ") terminal
-
-    gameWindow s = drawSimState (appAttrMap s) (s ^. windowSize) (s ^. simState)
+    gameWindow s = clickable GameWindow $ drawSimState (appAttrMap s) (s ^. windowSize) (s ^. simState)
 
     appAttrMap _ = attrMap defAttr []
 
@@ -84,9 +93,42 @@ theapp q = App {..}
     appHandleEvent (VtyEvent (EvKey (KChar 'q') _)) = do
       L.assign gameExit (Just ExitMainMenu)
       halt
-    appHandleEvent (VtyEvent (EvKey k m)) = do
-      traverse_ (liftIO . atomically . writeTQueue q) (directInput k m)
-      continueWithoutRedraw -- input forwarded directly to simulation thread, not immediately visible
+
+    appHandleEvent (VtyEvent (EvKey (KChar 't') ms)) | MCtrl `elem` ms = do
+      fc <- use terminalFocus
+      Brick.zoom term $ forceVisibleInputLine .= True
+      terminalFocus .= case fc of
+        VisibleFocused -> Invisible
+        _ -> VisibleFocused
+    appHandleEvent (VtyEvent (EvKey (KChar 'w') ms)) | MCtrl `elem` ms = do
+      fc <- use terminalFocus
+      case fc of
+        VisibleFocused -> terminalFocus .= VisibleUnfocused
+        VisibleUnfocused -> do
+          Brick.zoom term $ forceVisibleInputLine .= True
+          terminalFocus .= VisibleFocused
+        Invisible -> terminalFocus .= Invisible
+
+    appHandleEvent e@(VtyEvent (EvKey k m)) = do
+      fc <- use terminalFocus
+      case fc of
+        VisibleFocused -> do
+          case k of
+            KPageUp -> do
+              Brick.zoom term $ forceVisibleInputLine .= False
+              vScrollBy (viewportScroll TerminalViewport) (-1)
+            KPageDown ->
+              vScrollBy (viewportScroll TerminalViewport) 1
+            _ -> do
+              -- TODO: send as input
+              txts <- Brick.zoom term $ do
+                forceVisibleInputLine .= True
+                handleTerminalEvent e
+              pure ()
+        _ -> do
+          traverse_ (liftIO . atomically . writeTQueue q) (directInput k m)
+          continueWithoutRedraw -- input forwarded directly to simulation thread, not immediately visible
+
     appHandleEvent (AppEvent (Left ss)) = L.assign simState ss
     appHandleEvent (AppEvent (Right se)) = do
       let se' = mconcat se
@@ -97,16 +139,31 @@ theapp q = App {..}
     appHandleEvent (VtyEvent (EvResize w h)) =
       windowSize .= (w,h)
 
-    appHandleEvent (MouseDown TerminalViewport BScrollUp _ _) = undefined
-    appHandleEvent (MouseDown TerminalViewport BScrollDown _ _) = undefined
-    appHandleEvent (MouseDown TerminalViewport BLeft _ _) =
+    appHandleEvent e@(VtyEvent (EvPaste _)) = do
+      fc <- use terminalFocus
+      when (fc == VisibleFocused) do
+        -- TODO: send as input
+        txts <- Brick.zoom term $ handleTerminalEvent e
+        pure ()
+
+    appHandleEvent (MouseDown TerminalViewport BScrollUp _ _) = do
+      Brick.zoom term $ forceVisibleInputLine .= False
+      vScrollBy (viewportScroll TerminalViewport) (-1)
+    appHandleEvent (MouseDown TerminalViewport BScrollDown _ _) = do
+      vScrollBy (viewportScroll TerminalViewport) 1
+    appHandleEvent (MouseDown TerminalViewport BLeft _ _) = do
+      Brick.zoom term $ forceVisibleInputLine .= True
       terminalFocus .= VisibleFocused
+    appHandleEvent (MouseDown GameWindow BLeft _ _) = do
+      fc <- use terminalFocus
+      when (fc == VisibleFocused) $
+        terminalFocus .= VisibleUnfocused
 
     appHandleEvent _ = pure ()
 
     appChooseCursor s =
       if s ^. terminalFocus == VisibleFocused
-        then showCursorNamed TerminalViewport
+        then showCursorNamed TerminalCursor
         else pure Nothing
 
     appStartEvent = do
