@@ -19,6 +19,7 @@ module App.Thread
   , waitSFThread
   , flushSFThreadEvents
   , mapDiscreteOutput
+  , module App.Thread.Repl
   ) where
 
 import Graphics.Vty (defaultConfig, Vty(..))
@@ -38,6 +39,14 @@ import Data.Time
 import Control.Concurrent
 import Data.Maybe
 import Graphics.Vty.Output
+import Spell
+import Type.Reflection (Typeable)
+import Language.Haskell.Interpreter
+import Data.Void
+import Data.Foldable
+import Control.Monad.Trans.Maybe
+import Control.Monad.Fix
+import App.Thread.Repl
 
 -- | Initialised terminal resources.
 data AppThread = AppThread
@@ -105,7 +114,7 @@ instance Profunctor (BrickThread r) where
   rmap = fmap
 
 mapBrickResult :: (r -> r') -> BrickThread r e o -> BrickThread r' e o
-mapBrickResult f b@BrickThread{brickAsync} = b { brickAsync = fmap (Data.Bifunctor.first f) brickAsync } 
+mapBrickResult f b@BrickThread{brickAsync} = b { brickAsync = fmap (Data.Bifunctor.first f) brickAsync }
 
 -- | Runs the passed Brick application on a separate thread, using resources initialised by
 -- AppThread. Does not guarantee that BrickThread will remain active for the entire continuation:
@@ -187,10 +196,10 @@ takeSFThread SFThread{lastOutput, rmapperSFThread} =
 -- | Retries until the SFThread exits.
 waitSFThread :: SFThread e u s -> STM (Maybe SomeException)
 waitSFThread SFThread{..} =
-  either Just (const Nothing) <$> waitCatchSTM sfAsync 
+  either Just (const Nothing) <$> waitCatchSTM sfAsync
 
 -- | Get all events in the SFThread's queue. Never retries.
-flushSFThreadEvents :: SFThread e u s -> STM [e] 
+flushSFThreadEvents :: SFThread e u s -> STM [e]
 flushSFThreadEvents SFThread{..} = map eventsMapperSFThread <$> flushTQueue sfEvents
 
 -- | Run the passed signal function as an SFThread. Just like BrickThread, does
@@ -200,7 +209,7 @@ withSFThread sf k = do
   userInputs <- newEmptyTMVarIO
   lastOutput <- newEmptyTMVarIO
   paused <- newEmptyTMVarIO
-  lastTime <- getCurrentTime >>= newTVarIO 
+  lastTime <- getCurrentTime >>= newTVarIO
   sfEvents <- newTQueueIO
 
   let
@@ -242,7 +251,7 @@ withSFThread sf k = do
 
     actuate _ (s, e) = do
       atomically $ writeTMVar lastOutput s
-      event (pure ()) (atomically . writeTQueue sfEvents) e 
+      event (pure ()) (atomically . writeTQueue sfEvents) e
       pure False
 
   withAsync

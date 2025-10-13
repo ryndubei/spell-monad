@@ -17,12 +17,23 @@ tested-with:        GHC==9.8.4
 common warnings
     ghc-options: -Wall
 
+library spell
+    import:           warnings
+    exposed-modules:  Spell
+                    , Prelude.Spell
+    hs-source-dirs:   spell
+    build-depends:    base
+                    , exceptions
+                    , free
+    default-language: GHC2021
+
 library
     import:           warnings
     exposed-modules:  App.UI.MainMenu
                     , App.UI.GameScreen
                     , App.UI.GameScreen.Terminal
                     , App.Thread
+                    , App.Thread.Repl
                     , Input
                     , Simulation
                     , Simulation.Input
@@ -31,6 +42,7 @@ library
         TypeFamilies
         DataKinds
     build-depends:    base
+                    , spell-monad:spell
                     , async
                     , bearriver ^>= 0.15
                     , brick
@@ -40,6 +52,7 @@ library
                     , deepseq
                     , directory
                     , dunai
+                    , effectful
                     , filepath
                     , free
                     , hint
