@@ -1,6 +1,7 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE BlockArguments #-}
 {-# LANGUAGE ApplicativeDo #-}
+{-# LANGUAGE OverloadedStrings #-}
 module App.Thread
   ( AppThread
   , withAppThread
@@ -19,6 +20,14 @@ module App.Thread
   , waitSFThread
   , flushSFThreadEvents
   , mapDiscreteOutput
+  , ReplThread
+  , InterpretRequest(..)
+  , ReplStatus(..)
+  , withReplThread
+  , submitRepl
+  , replStatus
+  , getReplResult
+  , interruptRepl
   ) where
 
 import Graphics.Vty (defaultConfig, Vty(..))
@@ -38,6 +47,17 @@ import Data.Time
 import Control.Concurrent
 import Data.Maybe
 import Graphics.Vty.Output
+import Spell
+import Type.Reflection (Typeable)
+import Data.Text (Text)
+import Language.Haskell.Interpreter
+import Data.Char
+import Data.List (stripPrefix)
+import Control.Applicative
+import Control.Monad.State
+import Control.Monad.Trans.Maybe
+import Data.Void
+import qualified Data.Text as T
 
 -- | Initialised terminal resources.
 data AppThread = AppThread
@@ -105,7 +125,7 @@ instance Profunctor (BrickThread r) where
   rmap = fmap
 
 mapBrickResult :: (r -> r') -> BrickThread r e o -> BrickThread r' e o
-mapBrickResult f b@BrickThread{brickAsync} = b { brickAsync = fmap (Data.Bifunctor.first f) brickAsync } 
+mapBrickResult f b@BrickThread{brickAsync} = b { brickAsync = fmap (Data.Bifunctor.first f) brickAsync }
 
 -- | Runs the passed Brick application on a separate thread, using resources initialised by
 -- AppThread. Does not guarantee that BrickThread will remain active for the entire continuation:
@@ -187,10 +207,10 @@ takeSFThread SFThread{lastOutput, rmapperSFThread} =
 -- | Retries until the SFThread exits.
 waitSFThread :: SFThread e u s -> STM (Maybe SomeException)
 waitSFThread SFThread{..} =
-  either Just (const Nothing) <$> waitCatchSTM sfAsync 
+  either Just (const Nothing) <$> waitCatchSTM sfAsync
 
 -- | Get all events in the SFThread's queue. Never retries.
-flushSFThreadEvents :: SFThread e u s -> STM [e] 
+flushSFThreadEvents :: SFThread e u s -> STM [e]
 flushSFThreadEvents SFThread{..} = map eventsMapperSFThread <$> flushTQueue sfEvents
 
 -- | Run the passed signal function as an SFThread. Just like BrickThread, does
@@ -200,7 +220,7 @@ withSFThread sf k = do
   userInputs <- newEmptyTMVarIO
   lastOutput <- newEmptyTMVarIO
   paused <- newEmptyTMVarIO
-  lastTime <- getCurrentTime >>= newTVarIO 
+  lastTime <- getCurrentTime >>= newTVarIO
   sfEvents <- newTQueueIO
 
   let
@@ -242,7 +262,7 @@ withSFThread sf k = do
 
     actuate _ (s, e) = do
       atomically $ writeTMVar lastOutput s
-      event (pure ()) (atomically . writeTQueue sfEvents) e 
+      event (pure ()) (atomically . writeTQueue sfEvents) e
       pure False
 
   withAsync
@@ -252,3 +272,116 @@ withSFThread sf k = do
     rmapperSFThread = id
     lmapperSFThread = id
     eventsMapperSFThread = id
+
+-- | A request to carry out some side effects in the game.
+data InterpretRequest =
+  forall a. Typeable a => InterpretRequest
+    { submitResponseHere :: TMVar (a -> STM ())
+      -- ^ Exceptions in 'a' are allowed.
+      -- Becomes empty if no longer needed (e.g. due to an interrupt):
+      -- in that case should stop the Spell computation ASAP.
+      -- (TODO: Becomes an AsyncException if a response is no longer needed?)
+    , toInterpret :: Spell a
+    }
+
+data ReplThread = ReplThread
+  { toCompile :: !(TMVar String)
+  -- , spellOutputQueue :: !(TQueue Text)
+  , replResult :: !(TMVar (Maybe Text))
+      -- ^ ReplThread should not be unblocked until this is emptied
+      -- or it is interrupted
+  , interpretRequest :: !(TMVar InterpretRequest)
+  , replThreadAsync :: !(Async InterpreterError)
+  , replInterrupt :: !(TVar Bool)
+      -- ^ Tells the ReplThread that it must interrupt everything it is currently
+      -- blocked on and accept the next input in 'toCompile'.
+
+  , replInitialised :: !(TVar Bool)
+      -- ^ Should have a loading screen preventing the user from sending
+      -- anything to the REPL until it is initialised here, but this is not
+      -- strictly necessary.
+
+  , replBlocked :: !(TVar Bool)
+      -- ^ Should not send any input until this is False.
+  }
+
+withReplThread :: (ReplThread -> IO a) -> IO a
+withReplThread k = do
+  toCompile <- newEmptyTMVarIO
+  replResult <- newEmptyTMVarIO
+  interpretRequest <- newEmptyTMVarIO
+  replInterrupt <- newTVarIO False
+  replInitialised <- newTVarIO False
+  replBlocked <- newTVarIO False
+
+  withAsync
+    do
+      e <- runInterpreter $ do
+        setImports ["Prelude.Spell"]
+        liftIO . atomically $ writeTVar replInitialised True
+        forever do
+
+          s <- liftIO $ atomically do
+            -- An interrupt will always clear the pending input atomically, so
+            -- even if there is an interrupt already, then there is nothing to do.
+            writeTVar replInterrupt False
+            -- no need to write to replBlocked because that is already done by
+            -- submitRepl
+            readTMVar toCompile
+          t <- typeChecksWithDetails s
+          case t of
+            Left errs -> liftIO $ atomically do
+              b <- readTVar replInterrupt
+              if b
+                then writeTVar replInterrupt False
+                else do
+                  writeTMVar replResult ((\tx -> if T.null tx then Nothing else Just tx) . T.unlines $ map (T.pack . errMsg) errs) 
+                  writeTVar replBlocked False
+            Right _ -> undefined
+      pure $ either id absurd e
+    \replThreadAsync -> k ReplThread{..}
+
+-- | Retries until the ReplThread can accept more input.
+submitRepl :: ReplThread -> String -> STM ()
+submitRepl ReplThread{replResult, replBlocked, toCompile} s = do
+  b <- readTVar replBlocked
+  check (not b)
+  _ <- takeTMVar replResult
+    -- submitting something new for compilation should invalidate whatever was
+    -- in the result, if the REPL is no longer blocked
+  writeTMVar toCompile s
+  writeTVar replBlocked True
+
+data ReplStatus = Initialising | Initialised | Dead (Either SomeException InterpreterError)
+
+replStatus :: ReplThread -> STM ReplStatus
+replStatus ReplThread{replThreadAsync, replInitialised} = do
+  asyncResult <- pollSTM replThreadAsync
+  case asyncResult of
+    Nothing -> do
+      a <- readTVar replInitialised
+      pure $ if a then Initialised else Initialising
+    Just (Right e) -> pure (Dead (Right e))
+    Just (Left e) -> pure (Dead (Left e))
+
+-- | Acknowledge the ReplThread's result, allowing it to accept more inputs.
+-- Retries until there is a result.
+--
+-- A result is not guaranteed to come in if a separate thread is calling
+-- both 'submitRepl' and 'interruptRepl': the repl may be interrupted, but
+-- 'getReplResult' may not be woken up until the next 'submitRepl', which
+-- empties 'replResult'.
+getReplResult :: ReplThread -> STM (Maybe Text)
+getReplResult ReplThread{replBlocked, replResult} = do
+  writeTVar replBlocked False
+  takeTMVar replResult
+
+-- | Immediately interrupt whatever is currently blocking the REPL, allowing it
+-- to accept more inputs. Never retries.
+interruptRepl :: ReplThread -> STM ()
+interruptRepl ReplThread{toCompile, replResult, replInterrupt, replBlocked} = do
+  _ <- tryTakeTMVar toCompile
+  _ <- tryPutTMVar replResult Nothing -- ^ in case something is blocked on getReplResult
+  writeTVar replBlocked False
+  writeTVar replInterrupt True
+  pure ()
