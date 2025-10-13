@@ -2,6 +2,7 @@
 {-# LANGUAGE BlockArguments #-}
 {-# LANGUAGE ApplicativeDo #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE LambdaCase #-}
 module App.Thread
   ( AppThread
   , withAppThread
@@ -49,15 +50,11 @@ import Data.Maybe
 import Graphics.Vty.Output
 import Spell
 import Type.Reflection (Typeable)
-import Data.Text (Text)
 import Language.Haskell.Interpreter
-import Data.Char
-import Data.List (stripPrefix)
-import Control.Applicative
-import Control.Monad.State
-import Control.Monad.Trans.Maybe
 import Data.Void
-import qualified Data.Text as T
+import Data.Foldable
+import Control.Monad.Trans.Maybe
+import Control.Monad.Fix
 
 -- | Initialised terminal resources.
 data AppThread = AppThread
@@ -287,9 +284,16 @@ data InterpretRequest =
 data ReplThread = ReplThread
   { toCompile :: !(TMVar String)
   -- , spellOutputQueue :: !(TQueue Text)
-  , replResult :: !(TMVar (Maybe Text))
-      -- ^ ReplThread should not be unblocked until this is emptied
-      -- or it is interrupted
+
+  -- we are not passing this as a strict Text, because the returned value could
+  -- throw an exception, which throws another exception, and so on ad infinitum.
+  -- Also, we can have a type with a possibly-infinite, lazy Show instance.
+  -- (e.g. [1..])
+  -- That would not work well if we return a Text.
+  -- But also: having the UI thread handle exceptions would be fiddly and
+  -- error-prone, and interrupts would have to be handled in two places.
+  -- A queue of characters is the answer.
+  , replResult :: !(TQueue Char)
   , interpretRequest :: !(TMVar InterpretRequest)
   , replThreadAsync :: !(Async InterpreterError)
   , replInterrupt :: !(TVar Bool)
@@ -305,15 +309,19 @@ data ReplThread = ReplThread
       -- ^ Should not send any input until this is False.
   }
 
+-- TODO: move to separate module and make the code less ugly
 withReplThread :: (ReplThread -> IO a) -> IO a
 withReplThread k = do
   toCompile <- newEmptyTMVarIO
-  replResult <- newEmptyTMVarIO
+  replResult <- newTQueueIO
   interpretRequest <- newEmptyTMVarIO
   replInterrupt <- newTVarIO False
   replInitialised <- newTVarIO False
   replBlocked <- newTVarIO False
 
+  -- TODO: allow binding variables
+  -- (will most likely implement by transforming subsequent lines into functions
+  -- taking the bound variables as arguments)
   withAsync
     do
       e <- runInterpreter $ do
@@ -322,33 +330,98 @@ withReplThread k = do
         forever do
 
           s <- liftIO $ atomically do
-            -- An interrupt will always clear the pending input atomically, so
-            -- even if there is an interrupt already, then there is nothing to do.
+            -- Nothing to interrupt. If the target of the interrupt were to be 
+            -- whatever is in toCompile, then toCompile would be empty by
+            -- atomicity of interruptRepl.
             writeTVar replInterrupt False
-            -- no need to write to replBlocked because that is already done by
-            -- submitRepl
             readTMVar toCompile
-          t <- typeChecksWithDetails s
-          case t of
-            Left errs -> liftIO $ atomically do
-              b <- readTVar replInterrupt
-              if b
-                then writeTVar replInterrupt False
-                else do
-                  writeTMVar replResult ((\tx -> if T.null tx then Nothing else Just tx) . T.unlines $ map (T.pack . errMsg) errs) 
-                  writeTVar replBlocked False
-            Right _ -> undefined
+
+          -- Ugly hack, probably subject to escapes. Low priority because this
+          -- is a prototype + whatever the player inputs is sandboxed anyway.
+          -- The only danger is the player receiving a false positive on the
+          -- syntax being valid.
+          -- TODO: more reliable method at some point
+          let s' = parens s ++ " :: Spell ()"
+
+          typeChecksWithDetails s' >>= \case
+            Left errs -> do
+                liftIO $ atomically do
+                  b <- readTVar replInterrupt
+                  -- putting everything into one big 'atomically' is okay because errMsg
+                  -- should be finite
+                  unless b $ traverse_ (writeTQueue replResult) (unlines $ map errMsg errs)
+
+            Right t -> case t of
+              -- TODO: return values with a Show instance should be printed
+              -- except for (), which should not be
+              "Spell ()" -> do
+                spell <- interpret s' (as :: Spell ())
+
+                response <- liftIO newEmptyTMVarIO
+                submitResponse <- liftIO newEmptyTMVarIO
+                liftIO . atomically $ writeTMVar submitResponse (void . tryPutTMVar response >=> const (void $ takeTMVar submitResponse))
+
+                -- Submit the spell to be interpreted
+                interrupted1 <- liftIO $ atomically do
+                  b <- readTVar replInterrupt
+                  if b
+                    then pure True
+                    else do
+                      writeTMVar interpretRequest $ InterpretRequest submitResponse spell
+                      pure False
+
+                -- Wait for the spell to be interpreted
+                unless interrupted1 $ liftIO do
+                  -- UncaughtSpellException is a wrapper to not mistake an async
+                  -- exception for one thrown by the player
+                  mu <- fmap (mapException UncaughtSpellException) <$> atomically do
+                    orElse
+                      -- either we are interrupted:
+                      (readTVar replInterrupt >>= check >> void (takeTMVar submitResponse) >> pure Nothing)
+                      -- or we get the response:
+                      (Just <$> takeTMVar response)
+                      -- otherwise block
+
+                  case mu of
+                    Nothing -> pure ()
+                    Just u ->
+                      catch
+                        -- evaluate to WHNF, do nothing if all okay
+                        (evaluate u)
+                        -- note: lazy pattern
+                        -- recursive, because exceptions can throw exceptions which throw exceptions...
+                        (fix \this (~(UncaughtSpellException ex)) -> do
+                          let msg = mapException UncaughtSpellException displayException ex
+                          catch
+                            (void . runMaybeT . for_ msg $ liftIO . evaluate >=> \c -> do
+                              interrupted2 <- liftIO $ atomically do
+                                b <- readTVar replInterrupt
+                                if b
+                                  then pure True
+                                  else do
+                                    writeTQueue replResult c
+                                    pure False
+                              -- early exit if interrupted
+                              when interrupted2 $ hoistMaybe Nothing
+                            )
+                            this
+                        )
+
+              _ -> liftIO . throwIO $ userError "impossible? (expr) :: Spell () typechecks, but isn't of type Spell ()."
+
       pure $ either id absurd e
     \replThreadAsync -> k ReplThread{..}
+
+newtype UncaughtSpellException = UncaughtSpellException SomeException deriving Show
+instance Exception UncaughtSpellException
 
 -- | Retries until the ReplThread can accept more input.
 submitRepl :: ReplThread -> String -> STM ()
 submitRepl ReplThread{replResult, replBlocked, toCompile} s = do
   b <- readTVar replBlocked
   check (not b)
-  _ <- takeTMVar replResult
-    -- submitting something new for compilation should invalidate whatever was
-    -- in the result, if the REPL is no longer blocked
+  -- submitting something new for compilation invalidates whatever was in the result:
+  _ <- flushTQueue replResult
   writeTMVar toCompile s
   writeTVar replBlocked True
 
@@ -364,24 +437,22 @@ replStatus ReplThread{replThreadAsync, replInitialised} = do
     Just (Right e) -> pure (Dead (Right e))
     Just (Left e) -> pure (Dead (Left e))
 
--- | Acknowledge the ReplThread's result, allowing it to accept more inputs.
--- Retries until there is a result.
---
--- A result is not guaranteed to come in if a separate thread is calling
--- both 'submitRepl' and 'interruptRepl': the repl may be interrupted, but
--- 'getReplResult' may not be woken up until the next 'submitRepl', which
--- empties 'replResult'.
-getReplResult :: ReplThread -> STM (Maybe Text)
+-- | Get the next character from the ReplThread's output.
+-- Retries until there is a result, or the thread is unblocked
+-- (therefore can no longer send an output)
+getReplResult :: ReplThread -> STM (Maybe Char)
 getReplResult ReplThread{replBlocked, replResult} = do
-  writeTVar replBlocked False
-  takeTMVar replResult
+  orElse
+    (Just <$> readTQueue replResult)
+    (readTVar replBlocked >>= check . not >> pure Nothing)
+
 
 -- | Immediately interrupt whatever is currently blocking the REPL, allowing it
 -- to accept more inputs. Never retries.
 interruptRepl :: ReplThread -> STM ()
 interruptRepl ReplThread{toCompile, replResult, replInterrupt, replBlocked} = do
   _ <- tryTakeTMVar toCompile
-  _ <- tryPutTMVar replResult Nothing -- ^ in case something is blocked on getReplResult
+  _ <- flushTQueue replResult -- ^ if interrupted, cease all printing
   writeTVar replBlocked False
   writeTVar replInterrupt True
   pure ()
