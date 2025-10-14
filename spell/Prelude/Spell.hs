@@ -1,6 +1,7 @@
 {-# LANGUAGE NoImplicitPrelude #-}
 module Prelude.Spell
   ( module Spell
+  , module Spell.IO
   -- * base
   , module Prelude
   -- * exceptions
@@ -12,6 +13,7 @@ import Spell
   , firebolt
   , face
   )
+import Spell.IO
 import Control.Monad.Catch
   ( MonadThrow(..)
   , MonadCatch(..)

@@ -4,6 +4,8 @@ module Spell
   , SpellF(..)
   , firebolt
   , face
+  , putChar
+  , getChar
   ) where
 
 import Control.Monad.Free
@@ -26,6 +28,8 @@ data SpellF next
   | Face (Double, Double) next
   | Catch next (SomeException -> Maybe next)
   -- ^ NOTE: (base's) async exceptions won't be caught
+  | PutChar Char next
+  | GetChar (Char -> next)
 
   -- (ThreadKilled should crash the level but not the whole game in case
   -- the player manages to somehow import it)
@@ -54,3 +58,9 @@ firebolt = liftF (Firebolt ())
 
 face :: (Double, Double) -> Spell ()
 face v = liftF (Face v ())
+
+putChar :: Char -> Spell ()
+putChar c = liftF (PutChar c ())
+
+getChar :: Spell Char
+getChar = liftF (GetChar id)
