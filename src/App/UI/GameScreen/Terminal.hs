@@ -1,5 +1,7 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE BlockArguments #-}
+{-# LANGUAGE OverloadedStrings #-}
+
 module App.UI.GameScreen.Terminal
   ( Terminal
   , drawTerminal
@@ -22,6 +24,7 @@ module App.UI.GameScreen.Terminal
   , cursorLeft
   , cursorTo
   , cursorToEnd
+  , pushOutputLine
   , pushOutput
   ) where
 
@@ -47,6 +50,10 @@ import Data.Bifunctor
 -- will be horrible when history gets large
 data Terminal = Terminal
   { _history :: Seq Text -- ^ The visible terminal lines. Includes non-user output. Last output first. User inputs have 'prompt' prepended.
+  , _outputLine :: Seq Char
+      -- ^ The last output line. Visible when non-empty. Appended by pushOutput.
+      -- Emptied and added to history on pushOutputLine and enterLine, or on
+      -- pushOutput '\n'.
   , _inputHistory :: Seq Text -- ^ History for specifically inputs.
   , _inputHistoryIndex :: !Int -- ^ Index of the _current_ history entry. A completely fresh line
                                -- has index -1.
@@ -62,6 +69,7 @@ data Terminal = Terminal
 terminal :: Terminal
 terminal = Terminal
   { _history = mempty
+  , _outputLine = mempty
   , _inputHistory = mempty
   , _inputHistoryIndex = -1
   , _lineChanged = False
@@ -92,8 +100,16 @@ enterLine = do
       pr <- use prompt
       inputLine .= Seq.empty
       cursorOffset .= 0
+
+      ol <- T.pack . toList <$> use outputLine
+
       let t = T.pack $ toList l
           tp = T.pack $ toList pr
+
+      -- Push the current output line to the history, unless it's empty.
+      unless (T.null ol) do
+        outputLine .= mempty
+        history %= (ol Seq.<|)
 
       -- Add 't' to history with the prompt prepended
       history %= (tp <> t Seq.<|)
@@ -144,8 +160,17 @@ insertLines l = do
 
 -- | Push a non-input string immediately to the history (will not be shown
 -- when repeating previous commands with up arrow). Represents output.
-pushOutput :: MonadState Terminal m => Text -> m ()
-pushOutput t = history %= (t Seq.<|)
+pushOutputLine :: MonadState Terminal m => Text -> m ()
+pushOutputLine t = do
+  l <- T.pack . toList <$> use outputLine
+  outputLine .= mempty
+  history %= ((l <> t) Seq.<|)
+
+-- | Push a single character to the output.
+pushOutput :: MonadState Terminal m => Char -> m ()
+pushOutput '\t' = replicateM_ 4 (pushOutput ' ')
+pushOutput '\n' = pushOutputLine mempty
+pushOutput c = outputLine %= (Seq.|> c)
 
 -- | Go back in history, backing up the current line if modified.
 historyPrev, historyNext :: MonadState Terminal m => m ()
@@ -172,7 +197,7 @@ historyPrev = use blocked >>= \b -> unless b do
       -- replace input with line from history
       inputLine .= Seq.fromList (T.unpack e)
       lineChanged .= False
-      
+
       -- cursor may become invalid when we go backwards/forward in history.
       -- Best to just reset it to 0.
       cursorOffset .= 0
@@ -241,13 +266,18 @@ drawTerminal
   => n -- ^ Cursor name
   -> Terminal
   -> Widget n
-drawTerminal cursorName t = showCursor cursorName cursorLoc (vBox hs <=> (if t ^. forceVisibleInputLine then visible else id) (str finalLine))
+drawTerminal cursorName t = showCursor cursorName cursorLoc
+  . vBox
+  $ vBox hs
+  : [ outputLineStr | not (null $ t ^. outputLine) ]
+  ++ [ (if t ^. forceVisibleInputLine then visible else id) (str finalLine) | not (t ^. blocked)]
   where
     hs = map txt . toList $ Seq.reverse (t ^. history)
+    outputLineStr = str $ toList (t ^. outputLine)
     finalLine = (t ^. prompt) ++ toList (t ^. inputLine)
     cursorLoc = Location (cursorX, cursorY)
     cursorX = length (t ^. prompt) + (t ^. cursorColumn)
-    cursorY = length (t ^. history)
+    cursorY = length (t ^. history) + if null $ t ^. outputLine then 0 else 1
 
 handleTerminalEvent :: MonadState Terminal m => BrickEvent n e -> m [Text]
 handleTerminalEvent (VtyEvent (EvKey KUp _)) = [] <$ historyPrev
@@ -255,7 +285,7 @@ handleTerminalEvent (VtyEvent (EvKey KDown _)) = [] <$ historyNext
 handleTerminalEvent (VtyEvent (EvKey KLeft _)) = [] <$ cursorLeft
 handleTerminalEvent (VtyEvent (EvKey KRight _)) = [] <$ cursorRight
 handleTerminalEvent (VtyEvent (EvKey (KChar '\t') _)) = pure [] -- TODO: tab completion?
-handleTerminalEvent (VtyEvent (EvKey (KChar c) _)) = [] <$ insertChar c 
+handleTerminalEvent (VtyEvent (EvKey (KChar c) _)) = [] <$ insertChar c
 handleTerminalEvent (VtyEvent (EvKey KDel _)) = [] <$ deleteChar
 handleTerminalEvent (VtyEvent (EvKey KBS _)) = [] <$ deleteChar
 handleTerminalEvent (VtyEvent (EvKey KHome _)) = [] <$ cursorTo 0

@@ -12,6 +12,7 @@ module App.Thread.Repl
   , replStatus
   , getReplResult
   , interruptRepl
+  , takeInterpretRequest
   ) where
 
 import Control.Concurrent.STM
@@ -102,7 +103,7 @@ withReplThread k = do
             -- whatever is in toCompile, then toCompile would be empty by
             -- atomicity of interruptRepl.
             writeTVar replInterrupt False
-            readTMVar toCompile
+            takeTMVar toCompile
 
           -- Ugly hack, probably subject to escapes. Low priority because this
           -- is a prototype + whatever the player inputs is sandboxed anyway.
@@ -180,6 +181,14 @@ withReplThread k = do
 newtype UncaughtSpellException = UncaughtSpellException SomeException deriving Show
 instance Exception UncaughtSpellException
 
+-- | Retry until the ReplThread has a valid InterpretRequest.
+takeInterpretRequest :: ReplThread -> STM InterpretRequest
+takeInterpretRequest ReplThread{..} = do
+  req@InterpretRequest{submitResponseHere} <- takeTMVar interpretRequest
+  b <- isEmptyTMVar submitResponseHere
+  check (not b)
+  pure req
+
 -- | Retries until the ReplThread can accept more input.
 submitRepl :: ReplThread -> String -> STM ()
 submitRepl ReplThread{replResult, replBlocked, toCompile} s = do
@@ -190,15 +199,19 @@ submitRepl ReplThread{replResult, replBlocked, toCompile} s = do
   writeTMVar toCompile s
   writeTVar replBlocked True
 
-data ReplStatus = Initialising | Initialised | Dead (Either SomeException InterpreterError)
+data ReplStatus = Initialising | Unblocked | Blocked | Dead (Either SomeException InterpreterError)
 
 replStatus :: ReplThread -> STM ReplStatus
-replStatus ReplThread{replThreadAsync, replInitialised} = do
+replStatus ReplThread{..} = do
   asyncResult <- pollSTM replThreadAsync
   case asyncResult of
     Nothing -> do
-      a <- readTVar replInitialised
-      pure $ if a then Initialised else Initialising
+      initialised <- readTVar replInitialised
+      blocked <- readTVar replBlocked 
+      pure $ case (initialised, blocked) of
+        (False, _) -> Initialising
+        (True, True) -> Blocked
+        (True, False) -> Unblocked
     Just (Right e) -> pure (Dead (Right e))
     Just (Left e) -> pure (Dead (Left e))
 

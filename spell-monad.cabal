@@ -106,3 +106,23 @@ executable terminal-demo
                     , stm
                     , vty
     ghc-options: -threaded
+
+executable terminal-demo-with-repl
+    import:           warnings
+    default-language: GHC2021
+    hs-source-dirs:   demos
+    main-is:          TerminalDemoWithRepl.hs
+    build-depends:    base
+                    , spell-monad
+                    , spell-monad:spell
+                    , async
+                    , brick
+                    , containers
+                    , free
+                    , lens
+                    , mmorph
+                    , stm
+                    , text
+                    , transformers
+                    , vty
+    ghc-options: -threaded
