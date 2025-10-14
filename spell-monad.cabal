@@ -33,6 +33,7 @@ library
                     , App.UI.GameScreen
                     , App.UI.GameScreen.Terminal
                     , App.Thread
+                    , App.Thread.Repl
                     , Input
                     , Simulation
                     , Simulation.Input
