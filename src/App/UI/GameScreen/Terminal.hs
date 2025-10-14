@@ -266,7 +266,7 @@ drawTerminal
   => n -- ^ Cursor name
   -> Terminal
   -> Widget n
-drawTerminal cursorName t = showCursor cursorName cursorLoc
+drawTerminal cursorName t = (if t ^. blocked then id else showCursor cursorName cursorLoc)
   . vBox
   $ vBox hs
   : [ outputLineStr | not (null $ t ^. outputLine) ]
