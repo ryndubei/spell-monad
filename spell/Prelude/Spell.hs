@@ -12,6 +12,8 @@ import Spell
   ( Spell
   , firebolt
   , face
+  , putChar
+  , getChar
   )
 import Spell.IO
 import Control.Monad.Catch
