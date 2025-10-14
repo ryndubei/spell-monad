@@ -13,6 +13,7 @@ import Prelude hiding (getChar, putChar)
 import Control.Monad.Catch
 import Data.Typeable
 import Control.Exception
+import GHC.Stack
 
 newtype Spell a = Spell {
     unSpell :: Free SpellF a
@@ -26,7 +27,7 @@ newtype Spell a = Spell {
 data SpellF next
   = Firebolt next
   | Face (Double, Double) next
-  | Catch next (SomeException -> Maybe next)
+  | forall a. Catch (Spell a) (SomeException -> Maybe (Spell a)) (a -> next)
   -- ^ NOTE: (base's) async exceptions won't be caught
   | PutChar Char next
   | GetChar (Char -> next)
@@ -46,10 +47,13 @@ instance MonadThrow Spell where
   throwM = liftF . throw
 
 instance MonadCatch Spell where
-  catch (Spell s) (h :: e -> Spell a) = Spell . Free . Catch s $ \(SomeException e) ->
-    case (cast e :: Maybe e) of
-      Just e' -> Just (unSpell (h e'))
-      Nothing -> Nothing
+  catch :: (HasCallStack, Exception e) => Spell a -> (e -> Spell a) -> Spell a
+  catch s (h :: e -> Spell a) =
+    let h' (SomeException e) =
+          case (cast e :: Maybe e) of
+            Just e' -> Just (h e')
+            Nothing -> Nothing
+     in Spell . Free $ Catch s h' pure
 
 deriving instance Functor SpellF
 
