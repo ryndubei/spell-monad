@@ -270,7 +270,7 @@ drawTerminal cursorName t = (if t ^. blocked then id else showCursor cursorName 
   . vBox
   $ vBox hs
   : [ outputLineStr | not (null $ t ^. outputLine) ]
-  ++ [ (if t ^. forceVisibleInputLine then visible else id) (str finalLine) | not (t ^. blocked)]
+  ++ [ (if t ^. forceVisibleInputLine then visible else id) (str finalLine) ]
   where
     hs = map txt . toList $ Seq.reverse (t ^. history)
     outputLineStr = str $ toList (t ^. outputLine)

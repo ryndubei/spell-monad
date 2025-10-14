@@ -20,7 +20,6 @@ import qualified Data.Text as T
 import Control.Lens
 import Control.Concurrent.Async
 import Control.Monad
-import Control.Monad.Trans.State (runState, execState)
 import Control.Monad.IO.Class
 import Spell
 import Spell.IO
@@ -28,6 +27,7 @@ import Control.Monad.Free
 import Data.Foldable
 import Data.Maybe
 import Control.Applicative
+import Control.Monad.State
 
 newtype AppState = AppState { _term :: Terminal }
 
@@ -76,7 +76,23 @@ main =
         Right (Left e) -> throwIO e
         Right (Right v) -> absurd v
   where
-    s0 = AppState { _term = (prompt .~ "foo> ") terminal}
+    s0 = AppState { _term = (prompt .~ unblockedPrompt) terminal}
+
+unblockedPrompt :: String
+unblockedPrompt = "foo> "
+
+blockedPrompt :: String
+blockedPrompt = "(blocked)"
+
+blockTerm :: MonadState Terminal m => m ()
+blockTerm = do
+  prompt .= blockedPrompt
+  blocked .= True
+
+unblockTerm :: MonadState Terminal m => m ()
+unblockTerm = do
+  prompt .= unblockedPrompt
+  blocked .= False
 
 interpreter :: ReplThread -> BrickThread s AppEvent n -> IO a
 interpreter rth bth = forever do
@@ -138,7 +154,7 @@ theapp rth _ = App {..}
           _ -> pure False
       when interrupted do
         -- running interruptRepl guarantees an immediate unblock for submitRepl
-        term . blocked .= False
+        Brick.zoom term unblockTerm
         Brick.zoom term $ pushOutputLine "Interrupted."
     appHandleEvent (AppEvent (Output s)) =
       Brick.zoom term $ traverse_ pushOutput s
@@ -162,7 +178,7 @@ theapp rth _ = App {..}
           then pure s''
           else do
             submitRepl rth $ T.unpack bs
-            pure $ (term . blocked .~ True) s''
+            pure $ execState (Brick.zoom term blockTerm) s''
       put s'
 
     appStartEvent = do
@@ -174,9 +190,9 @@ theapp rth _ = App {..}
       rs <- replStatus rth
       let f = pure . flip execState s
       case rs of
-        Initialising -> f (term . blocked .= True)
-        Blocked -> f (term . blocked .= True)
-        Unblocked -> f (term . blocked .= False)
+        Initialising -> f (Brick.zoom term blockTerm)
+        Blocked -> f (Brick.zoom term blockTerm)
+        Unblocked -> f (Brick.zoom term unblockTerm)
         Dead (Left e) -> throwSTM e
         Dead (Right e) -> throwSTM . userError $ "Interpreter error: " ++ show e
 

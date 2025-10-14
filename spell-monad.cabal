@@ -121,6 +121,7 @@ executable terminal-demo-with-repl
                     , free
                     , lens
                     , mmorph
+                    , mtl
                     , stm
                     , text
                     , transformers
