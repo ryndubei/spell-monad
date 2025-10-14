@@ -112,7 +112,10 @@ enterLine = do
         history %= (ol Seq.<|)
 
       -- Add 't' to history with the prompt prepended
-      history %= (tp <> t Seq.<|)
+      let hl = tp <> t
+      if T.null hl
+        then history %= (" " Seq.<|)
+        else history %= (tp <> t Seq.<|)
 
       -- Add just the raw input to input history,
       -- unless the line is empty
@@ -164,7 +167,12 @@ pushOutputLine :: MonadState Terminal m => Text -> m ()
 pushOutputLine t = do
   l <- T.pack . toList <$> use outputLine
   outputLine .= mempty
-  history %= ((l <> t) Seq.<|)
+  if T.null $ l <> t
+    then
+      -- Brick turns (txt mempty) into an empty widget, so we need to add an
+      -- extra space to the line.
+      history %= (" " Seq.<|)
+    else history %= ((l <> t) Seq.<|)
 
 -- | Push a single character to the output.
 pushOutput :: MonadState Terminal m => Char -> m ()
