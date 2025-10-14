@@ -37,6 +37,18 @@ data InterpretRequest =
     , toInterpret :: Spell a
     }
 
+-- | Guarantees that the InterpretRequest is invalidated when the continuation ends.
+withInterpretRequest :: Typeable a => Spell a -> ((InterpretRequest, TMVar a) -> IO b) -> IO b
+withInterpretRequest toInterpret =
+  bracket
+    do
+      response <- newEmptyTMVarIO
+      submitResponseHere <- liftIO newEmptyTMVarIO
+      -- function will empty the TMVar after first submit
+      atomically $ writeTMVar submitResponseHere (void . tryPutTMVar response >=> const (void $ tryTakeTMVar submitResponseHere))
+      pure (InterpretRequest{..}, response)
+    \(InterpretRequest{submitResponseHere}, _) -> void . atomically $ tryTakeTMVar submitResponseHere
+
 data ReplThread = ReplThread
   { toCompile :: !(TMVar String)
   -- , spellOutputQueue :: !(TQueue Text)
@@ -82,7 +94,8 @@ withReplThread k = do
       e <- runInterpreter $ do
         setImports ["Prelude.Spell"]
         liftIO . atomically $ writeTVar replInitialised True
-        forever do
+
+        forever . runMaybeT $ do
 
           s <- liftIO $ atomically do
             -- Nothing to interrupt. If the target of the interrupt were to be 
@@ -98,71 +111,68 @@ withReplThread k = do
           -- TODO: more reliable method at some point
           let s' = parens s ++ " :: Spell ()"
 
-          typeChecksWithDetails s' >>= \case
+          lift (typeChecksWithDetails s') >>= \case
             Left errs -> do
                 liftIO $ atomically do
                   b <- readTVar replInterrupt
-                  -- putting everything into one big 'atomically' is okay because errMsg
-                  -- should be finite
-                  unless b $ traverse_ (writeTQueue replResult) (unlines $ map errMsg errs)
+                  unless b do
+                    -- putting everything into one big 'atomically' is okay because errMsg
+                    -- should be finite
+                    traverse_ (writeTQueue replResult) (unlines $ map errMsg errs)
+                    writeTVar replBlocked False -- only need to write if not interrupted
+                hoistMaybe Nothing
+            Right _ -> pure ()
 
-            Right t -> case t of
-              -- TODO: return values with a Show instance should be printed
-              -- except for (), which should not be
-              "Spell ()" -> do
-                spell <- interpret s' (as :: Spell ())
+          -- TODO: return values with a Show instance should be printed
+          -- except for (), which should not be
+          spell <- lift $ interpret s' (as :: Spell ())
 
-                response <- liftIO newEmptyTMVarIO
-                submitResponse <- liftIO newEmptyTMVarIO
-                liftIO . atomically $ writeTMVar submitResponse (void . tryPutTMVar response >=> const (void $ takeTMVar submitResponse))
+          -- Get the result of interpreting 'spell', exiting early if interrupted
+          -- at any point in the process
+          u <- (hoistMaybe <=< liftIO . withInterpretRequest spell) \(req, response) -> runMaybeT do
+            -- Send the InterpretRequest, unless we were already interrupted
+            hoistMaybe =<< (liftIO . atomically) do
+              b <- readTVar replInterrupt
+              if b
+                then pure Nothing -- early exit
+                else do
+                  writeTMVar interpretRequest req
+                  pure $ Just ()
+            -- Wait for the spell to be interpreted
+            hoistMaybe =<< (liftIO . atomically) do
+              orElse
+                -- either we are interrupted (early exit):
+                (readTVar replInterrupt >>= check >> pure Nothing)
+                -- or we get the response:
+                -- (UncaughtSpellException is a wrapper to not mistake an async
+                -- exception for one thrown by the player)
+                (Just . mapException UncaughtSpellException <$> takeTMVar response)
+                -- otherwise block
 
-                -- Submit the spell to be interpreted
-                interrupted1 <- liftIO $ atomically do
-                  b <- readTVar replInterrupt
-                  if b
-                    then pure True
-                    else do
-                      writeTMVar interpretRequest $ InterpretRequest submitResponse spell
-                      pure False
-
-                -- Wait for the spell to be interpreted
-                unless interrupted1 $ liftIO do
-                  -- UncaughtSpellException is a wrapper to not mistake an async
-                  -- exception for one thrown by the player
-                  mu <- fmap (mapException UncaughtSpellException) <$> atomically do
-                    orElse
-                      -- either we are interrupted:
-                      (readTVar replInterrupt >>= check >> void (takeTMVar submitResponse) >> pure Nothing)
-                      -- or we get the response:
-                      (Just <$> takeTMVar response)
-                      -- otherwise block
-
-                  case mu of
-                    Nothing -> pure ()
-                    Just u ->
-                      catch
-                        -- evaluate to WHNF, do nothing if all okay
-                        (evaluate u)
-                        -- note: lazy pattern
-                        -- recursive, because exceptions can throw exceptions which throw exceptions...
-                        (fix \this (~(UncaughtSpellException ex)) -> do
-                          let msg = mapException UncaughtSpellException displayException ex
-                          catch
-                            (void . runMaybeT . for_ msg $ liftIO . evaluate >=> \c -> do
-                              interrupted2 <- liftIO $ atomically do
-                                b <- readTVar replInterrupt
-                                if b
-                                  then pure True
-                                  else do
-                                    writeTQueue replResult c
-                                    pure False
-                              -- early exit if interrupted
-                              when interrupted2 $ hoistMaybe Nothing
-                            )
-                            this
-                        )
-
-              _ -> liftIO . throwIO $ userError "impossible? (expr) :: Spell () typechecks, but isn't of type Spell ()."
+          liftIO $ catch
+            -- evaluate to WHNF, do nothing if all okay
+            (evaluate u)
+            -- note: lazy pattern
+            -- recursive, because exceptions can throw exceptions which throw exceptions...
+            (fix \this (~(UncaughtSpellException ex)) -> do
+              let msg = mapException UncaughtSpellException displayException ex
+              catch
+                -- need MaybeT here again because catch is in IO
+                (void . runMaybeT . for_ msg $ liftIO . evaluate >=> \c -> do
+                  hoistMaybe =<< (liftIO . atomically) do
+                    b <- readTVar replInterrupt
+                    if b
+                      then pure Nothing -- early exit
+                      else do
+                        writeTQueue replResult c
+                        pure (Just ())
+                )
+                this
+              )
+          -- done, unblock unless we were interrupted (meaning already unblocked)
+          liftIO $ atomically do
+            interrupted <- readTVar replInterrupt
+            unless interrupted $ writeTVar replBlocked False
 
       pure $ either id absurd e
     \replThreadAsync -> k ReplThread{..}
