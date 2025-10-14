@@ -128,6 +128,18 @@ theapp rth _ = App {..}
     appChooseCursor = showFirstCursor
 
     appHandleEvent (VtyEvent (EvKey KEsc _)) = halt
+    appHandleEvent (VtyEvent (EvKey (KChar 'c') ms)) | MCtrl `elem` ms = do
+      interrupted <- liftIO $ atomically do
+        b <- replStatus rth
+        case b of
+          Blocked -> do
+            interruptRepl rth
+            pure True
+          _ -> pure False
+      when interrupted do
+        -- running interruptRepl guarantees an immediate unblock for submitRepl
+        term . blocked .= False
+        Brick.zoom term $ pushOutputLine "Interrupted."
     appHandleEvent (AppEvent (Output s)) =
       Brick.zoom term $ traverse_ pushOutput s
     appHandleEvent (AppEvent ReplStatusUpdate) = do
