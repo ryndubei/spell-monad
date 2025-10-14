@@ -20,6 +20,7 @@ common warnings
 library spell
     import:           warnings
     exposed-modules:  Spell
+                    , Spell.IO
                     , Prelude.Spell
     hs-source-dirs:   spell
     build-depends:    base
