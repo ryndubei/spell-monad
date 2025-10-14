@@ -39,13 +39,6 @@ import Data.Time
 import Control.Concurrent
 import Data.Maybe
 import Graphics.Vty.Output
-import Spell
-import Type.Reflection (Typeable)
-import Language.Haskell.Interpreter
-import Data.Void
-import Data.Foldable
-import Control.Monad.Trans.Maybe
-import Control.Monad.Fix
 import App.Thread.Repl
 
 -- | Initialised terminal resources.
