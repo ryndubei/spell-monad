@@ -84,6 +84,9 @@ unblockedPrompt = "foo> "
 blockedPrompt :: String
 blockedPrompt = "(blocked)"
 
+initialisingPrompt :: String
+initialisingPrompt = "Initialising..."
+
 blockTerm :: MonadState Terminal m => m ()
 blockTerm = do
   prompt .= blockedPrompt
@@ -190,7 +193,9 @@ theapp rth _ = App {..}
       rs <- replStatus rth
       let f = pure . flip execState s
       case rs of
-        Initialising -> f (Brick.zoom term blockTerm)
+        Initialising -> f $ Brick.zoom term do
+          blocked .= True
+          prompt .= initialisingPrompt
         Blocked -> f (Brick.zoom term blockTerm)
         Unblocked -> f (Brick.zoom term unblockTerm)
         Dead (Left e) -> throwSTM e
