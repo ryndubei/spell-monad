@@ -101,33 +101,35 @@ interpreter :: ReplThread -> BrickThread s AppEvent n -> IO a
 interpreter rth bth = forever do
   InterpretRequest{..} <- atomically $ takeInterpretRequest rth
   let ~(Spell s0) = toInterpret
-      itr s = do
-        nxt <- atomically $ tryReadTMVar submitResponseHere >>= \case
-          Nothing -> pure Nothing
-          Just submit -> case s of
-            Pure a -> do
-              submit a
-              pure Nothing -- done
-            Free (PutChar c next) -> do
-              sendBrickEvent bth (Output [c])
-              pure (Just next)
-            Free (GetChar _) -> do
-              submit (error "GetChar: unimplemented")
-              pure Nothing
-            Free (Face (a,b) next) -> do
-              pure . Just . wrapExceptions $ unSpell do
-                Spell.IO.putStrLn $ "Face: " ++ show (a,b)
-                Spell next
-            Free (Firebolt next) -> do
-              pure . Just . wrapExceptions $ unSpell do
-                Spell.IO.putStrLn "Firebolt"
-                Spell next
-            Free (Catch {}) -> do
-              submit (error "Catch: unimplemented")
-              pure Nothing
-        traverse_ itr nxt
+      itr :: Free SpellF a -> IO a
+      itr = \case
+        Pure a -> pure a -- done
+        Free (PutChar c next) -> do
+          atomically $ sendBrickEvent bth (Output [c])
+          itr next
+        Free (GetChar _) -> pure (error "GetChar: unimplemented")
+        Free (Face (a,b) next) ->
+          itr $ unSpell do
+            Spell.IO.putStrLn $ "Face: " ++ show (a,b)
+            Spell next
+        Free (Firebolt next) -> do
+          itr $ unSpell do
+            Spell.IO.putStrLn "Firebolt"
+            Spell next
+        Free (Catch ~(Spell expr) h next) -> do
+          a <- catch
+            (itr expr)
+            (\e -> case h e of Nothing -> throwIO e; Just ~(Spell x) -> itr x)
+          itr (next a)
   catch
-    (itr $ wrapExceptions s0)
+    do withAsync
+        (itr (wrapExceptions s0))
+        \a -> atomically do
+          submit <- tryReadTMVar submitResponseHere
+          -- in the case that submit is Nothing, means we do not wait for 'a'
+          -- and exit the atomically block, killing the async thread.
+          traverse_ (waitSTM a >>=) submit
+    -- waitSTM will rethrow exceptions from 'a'
     \(~(UncaughtSpellException e)) -> atomically do
       submit <- tryReadTMVar submitResponseHere
       traverse_ ($ throw e) submit
