@@ -45,10 +45,11 @@ sameStatus _ _ = False
 
 main :: IO ()
 main =
+  newTQueueIO >>= \oq ->
   withAppThread \th ->
   withReplThread \rth ->
   withBrickThread th (theapp rth) s0 \bth ->
-  withAsync (interpreter rth bth) \ith ->
+  withAsync (interpreter rth oq) \ith ->
   withAsync
     -- Inform BrickThread of ReplStatus or of repl output
     do
@@ -56,15 +57,18 @@ main =
       forever $ atomically do
         b <- isBrickQueueEmpty bth
         check b
-        sentChar <- isJust <$> optional do
-          s <- some (maybe retry pure =<< getReplResult rth)
+        sentOutput <- isJust <$> optional do
+          out <- flushTQueue oq
+          err <- many (maybe retry pure =<< getReplResult rth)
+          let s = out ++ err
+          check (not $ null s)
           sendBrickEvent bth (Output s)
         sentUpdate <- isJust <$> optional do
           rs <- replStatus rth
           tryReadTMVar lastReplStatus >>= check . maybe True (not . sameStatus rs)
           writeTMVar lastReplStatus rs
           sendBrickEvent bth ReplStatusUpdate
-        check (sentChar || sentUpdate)
+        check (sentOutput || sentUpdate)
     \rthToBth -> do
       link rthToBth
       res <- race (atomically $ waitBrickThread bth) (atomically $ waitCatchSTM ith)
@@ -97,15 +101,15 @@ unblockTerm = do
   prompt .= unblockedPrompt
   blocked .= False
 
-interpreter :: ReplThread -> BrickThread s AppEvent n -> IO a
-interpreter rth bth = forever do
+interpreter :: ReplThread -> TQueue Char -> IO a
+interpreter rth oq = forever do
   InterpretRequest{..} <- atomically $ takeInterpretRequest rth
   let ~(Spell s0) = toInterpret
       itr :: Free SpellF a -> IO a
       itr = \case
         Pure a -> pure a -- done
         Free (PutChar c next) -> do
-          atomically $ sendBrickEvent bth (Output [c])
+          atomically $ writeTQueue oq c
           itr next
         Free (GetChar _) -> pure (error "GetChar: unimplemented")
         Free (Face (a,b) next) ->
