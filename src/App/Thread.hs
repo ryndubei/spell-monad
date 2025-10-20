@@ -12,6 +12,7 @@ module App.Thread
   , waitBrickThread
   , mapBrickResult
   , takeBrickThread
+  , dupBrickThread
   , SFThread
   , sendSFThread
   , takeSFThread
@@ -40,6 +41,7 @@ import Control.Concurrent
 import Data.Maybe
 import Graphics.Vty.Output
 import App.Thread.Repl
+import Data.Foldable
 
 -- | Initialised terminal resources.
 data AppThread = AppThread
@@ -93,9 +95,32 @@ data BrickThread r e o = forall e1 o1. BrickThread
   , brickBChan :: !(BChan e1)
   , brickAsync :: !(Async (r, Vty))
   , eventTQueue :: !(TQueue e1)
-  , outputTQueue :: !(TQueue o1)
+  , outputTChan :: !(TChan o1)
   , eventMapper :: e -> e1
   , outputMapper :: o1 -> o
+  
+  , queueWriting :: !(TVar Bool)
+    -- ^ eventTQueue may be flushed, but should not be treated as emptied unless
+    -- this is also False, since it may still be writing its contents to brickBChan
+
+  -- For duplicating the input stream. emptiedGlobal is incremented whenever
+  -- eventTQueue is emptied into brickBChan, meaning the BrickThread can accept
+  -- more output. emptiedLocal is set to the value of emptiedGlobal whenever
+  -- an output is pushed to eventTQueue.
+  -- emptiedGlobal /= emptiedLocal only if the queue has been emptied at least
+  -- once since the input was last sent into _this_ duplicate of BrickThread.
+  -- Therefore as long as there are a finite number of duplicates, the size of
+  -- eventTQueue will always be bounded.  
+  -- This is almost always an if-and-only-if, unless emptiedGlobal has overflown
+  -- to the exact value of emptiedLocal (unlikely). In that case, a thread may
+  -- miss a chance to write an output to BrickThread when it could have.
+  -- In the case that this somehow happens, an extra check on the actual
+  -- state of the queue could be used to ensure that not _every_ writer thread
+  -- blocks unnecessarily, so we don't deadlock.
+  , emptiedGlobal :: !(TVar Int)
+  , emptiedLocal :: !(TVar Int)
+  -- TODO: While this edge case is very unlikely to ever happen, maybe there is
+  -- a way to do this with no edge cases at all.
   }
 
 deriving instance Functor (BrickThread r e)
@@ -112,20 +137,30 @@ mapBrickResult f b@BrickThread{brickAsync} = b { brickAsync = fmap (Data.Bifunct
 -- | Runs the passed Brick application on a separate thread, using resources initialised by
 -- AppThread. Does not guarantee that BrickThread will remain active for the entire continuation:
 -- use 'waitBrickThread' with 'race' to exit immediately when BrickThread terminates.
-withBrickThread :: Ord n => AppThread -> (TQueue o -> App s e n) -> s -> (BrickThread s e o -> IO a) -> IO a
+withBrickThread :: Ord n => AppThread -> (TChan o -> App s e n) -> s -> (BrickThread s e o -> IO a) -> IO a
 withBrickThread appThread theapp initialState k = do
   brickBChan <- liftIO $ newBChan brickBChanSize
   vty' <- liftIO $ readTVarIO (vty appThread)
   eventTQueue <- liftIO newTQueueIO
-  outputTQueue <- newTQueueIO
+  outputTChan <- newTChanIO
+  emptiedGlobal <- newTVarIO 1
+  emptiedLocal <- newTVarIO 0
+  queueWriting <- newTVarIO False
   withAsync
-    (customMainWithVty vty' (rebuildVty appThread) (Just brickBChan) (theapp outputTQueue) initialState)
+    (customMainWithVty vty' (rebuildVty appThread) (Just brickBChan) (theapp outputTChan) initialState)
     \brickAsync -> do
       withAsync
         do
           Control.Monad.forever do
-            e <- atomically $ readTQueue eventTQueue
-            writeBChan brickBChan e
+            es <- atomically do
+              es <- flushTQueue eventTQueue
+              check (not $ null es)
+              writeTVar queueWriting True
+              pure es
+            traverse_ (writeBChan brickBChan) es
+            atomically do
+              writeTVar queueWriting False
+              modifyTVar' emptiedGlobal (+ 1) 
         \_ -> k BrickThread{..}
   where
     eventMapper = id
@@ -135,17 +170,44 @@ withBrickThread appThread theapp initialState k = do
 -- of events 'e'. This may seem to defeat the point of Brick's BChan. To avoid a
 -- memory leak, sendBrickEvent should only be called when 'isBrickQueueEmpty' is True.
 sendBrickEvent :: BrickThread r e o -> e -> STM ()
-sendBrickEvent BrickThread{..} = writeTQueue eventTQueue . eventMapper
+sendBrickEvent BrickThread{..} e = do
+  writeTQueue eventTQueue (eventMapper e)
+  readTVar emptiedGlobal >>= writeTVar emptiedLocal
 
+-- | Does not actually mean the event queue is empty, just "essentially empty"
+-- in this thread. As long as `sendBrickEvent` is only called when `isBrickQueueEmpty`
+-- is True, the size of the BrickThread's event queue will be bounded in proportion to
+-- the number of writer threads.
 isBrickQueueEmpty :: BrickThread r e o -> STM Bool
-isBrickQueueEmpty BrickThread{eventTQueue} = isEmptyTQueue eventTQueue
+isBrickQueueEmpty BrickThread{eventTQueue, queueWriting, emptiedGlobal, emptiedLocal} = asum
+  [ do -- the queue is empty, and its contents are not being currently written
+      isEmptyTQueue eventTQueue >>= check
+      readTVar queueWriting >>= check . not
+      pure True
+  , do -- the queue was emptied since we last wrote anything to it
+      g <- readTVar emptiedGlobal
+      l <- readTVar emptiedLocal
+      pure (g /= l)
+  ]
 
 -- | Retries until BrickThread exits.
 waitBrickThread :: BrickThread r e o -> STM (Either SomeException r)
 waitBrickThread BrickThread{brickAsync} = Data.Bifunctor.second fst <$> waitCatchSTM brickAsync
 
 takeBrickThread :: BrickThread r e o -> STM o
-takeBrickThread BrickThread{outputTQueue, outputMapper} = outputMapper <$> readTQueue outputTQueue
+takeBrickThread BrickThread{outputTChan, outputMapper} = outputMapper <$> readTChan outputTChan
+
+-- | Duplicate the BrickThread's output and input streams, allowing it to be
+-- used independently from a different thread.
+--
+-- > (dupBrickThread bth >>= takeBrickThread) = retry
+--
+-- > (dupBrickThread bth >>= isBrickQueueEmpty) = isBrickQueueEmpty bth
+dupBrickThread :: BrickThread r e o -> STM (BrickThread r e o)
+dupBrickThread BrickThread{..} = do
+  o <- dupTChan outputTChan
+  l <- readTVar emptiedLocal >>= newTVar
+  pure BrickThread{outputTChan = o, emptiedLocal = l, ..}
 
 maxDelay :: Num a => a
 maxDelay = 30 * 10^(3 :: Int) -- 30ms in microseconds

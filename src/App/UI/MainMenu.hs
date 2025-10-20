@@ -15,7 +15,6 @@ import Brick.Widgets.Border
 import Control.Exception
 import Data.Bifunctor
 import Control.Monad.IO.Class
-import Control.Concurrent.STM
 
 data MenuExit = Quit | NewGame
 
@@ -61,7 +60,7 @@ withMainMenu th k = withBrickThread th theapp s0 $ k . mapBrickResult (^. mainMe
 
 data KeyMoveDirection = KeyPrev | KeyNext
 
-theapp :: TQueue Void -> App MainMenuState Void Name
+theapp :: v -> App MainMenuState Void Name
 theapp _ = App {..}
   where
     appDraw s =

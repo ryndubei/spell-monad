@@ -143,7 +143,7 @@ interpreter rth oq = forever do
 newtype UncaughtSpellException = UncaughtSpellException SomeException deriving Show
 instance Exception UncaughtSpellException
 
-theapp :: ReplThread -> TQueue Void -> App AppState AppEvent ()
+theapp :: ReplThread -> v -> App AppState AppEvent ()
 theapp rth _ = App {..}
   where
     appDraw s = [drawTerminal () (s ^. term)]

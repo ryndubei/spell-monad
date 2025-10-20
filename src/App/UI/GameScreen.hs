@@ -68,8 +68,8 @@ withGameUI th ss0 k = do
         }
   withBrickThread th theapp s0 $ k . mapBrickResult (^. gameExit)
 
-theapp :: TQueue UserInput -> App AppState (Either SimState [SimEvent]) Name
-theapp q = App {..}
+theapp :: TChan UserInput -> App AppState (Either SimState [SimEvent]) Name
+theapp c = App {..}
   where
     appDraw s =
       [
@@ -126,7 +126,7 @@ theapp q = App {..}
                 handleTerminalEvent e
               pure ()
         _ -> do
-          traverse_ (liftIO . atomically . writeTQueue q) (directInput k m)
+          traverse_ (liftIO . atomically . writeTChan c) (directInput k m)
           continueWithoutRedraw -- input forwarded directly to simulation thread, not immediately visible
 
     appHandleEvent (AppEvent (Left ss)) = L.assign simState ss
