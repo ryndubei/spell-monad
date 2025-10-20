@@ -49,7 +49,7 @@ main =
   withAppThread \th ->
   withReplThread \rth ->
   withBrickThread th (theapp rth) s0 \bth ->
-  withAsync (interpreter rth oq) \ith ->
+  withAsync (interpreter rth bth oq) \ith ->
   withAsync
     -- Inform BrickThread of ReplStatus or of repl output
     do
@@ -86,7 +86,7 @@ unblockedPrompt :: String
 unblockedPrompt = "foo> "
 
 blockedPrompt :: String
-blockedPrompt = "(blocked)"
+blockedPrompt = ""
 
 initialisingPrompt :: String
 initialisingPrompt = "Initialising..."
@@ -101,8 +101,8 @@ unblockTerm = do
   prompt .= unblockedPrompt
   blocked .= False
 
-interpreter :: ReplThread -> TQueue Char -> IO a
-interpreter rth oq = forever do
+interpreter :: ReplThread -> BrickThread s AppEvent Char -> TQueue Char -> IO a
+interpreter rth bth oq = forever do
   InterpretRequest{..} <- atomically $ takeInterpretRequest rth
   let ~(Spell s0) = toInterpret
       itr :: Free SpellF a -> IO a
@@ -111,7 +111,19 @@ interpreter rth oq = forever do
         Free (PutChar c next) -> do
           atomically $ writeTQueue oq c
           itr next
-        Free (GetChar _) -> pure (error "GetChar: unimplemented")
+        Free (GetChar next) -> do
+          -- record next user input:
+          bth' <- atomically $ dupBrickThread bth
+          -- This is brittle: if we have multiple consecutive GetChar effects,
+          -- there may be brief intervals between them where we are not listening
+          -- for user input.
+          -- However, I don't care, because the alternative is prone to leaking
+          -- memory through holding on to user input indefinitely, and GetChar
+          -- is not an effect expected to be used often.
+          -- Maybe having another thread write input to a TBChan is an option,
+          -- though.
+          c <- atomically $ takeBrickThread bth'
+          itr (next c)
         Free (Face (a,b) next) ->
           itr $ unSpell do
             Spell.IO.putStrLn $ "Face: " ++ show (a,b)
@@ -143,8 +155,8 @@ interpreter rth oq = forever do
 newtype UncaughtSpellException = UncaughtSpellException SomeException deriving Show
 instance Exception UncaughtSpellException
 
-theapp :: ReplThread -> v -> App AppState AppEvent ()
-theapp rth _ = App {..}
+theapp :: ReplThread -> TChan Char -> App AppState AppEvent ()
+theapp rth ic = App {..}
   where
     appDraw s = [drawTerminal () (s ^. term)]
 
@@ -189,6 +201,10 @@ theapp rth _ = App {..}
             submitRepl rth $ T.unpack bs
             pure $ execState (Brick.zoom term blockTerm) s''
       put s'
+      case e of
+        -- push char input to stdout, whether we are blocked or not
+        (VtyEvent (EvKey (KChar c) _)) -> liftIO . atomically $ writeTChan ic c
+        _ -> pure ()
 
     appStartEvent = do
       s <- get
