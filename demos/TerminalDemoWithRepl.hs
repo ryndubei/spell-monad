@@ -50,6 +50,8 @@ main =
   withReplThread \rth ->
   withBrickThread th (theapp rth) s0 \bth ->
   withAsync (interpreter rth bth oq) \ith ->
+  -- sink for parent bth output
+  withAsync (forever . atomically $ takeBrickThread bth) \bthSink ->
   withAsync
     -- Inform BrickThread of ReplStatus or of repl output
     do
@@ -70,6 +72,7 @@ main =
           sendBrickEvent bth ReplStatusUpdate
         check (sentOutput || sentUpdate)
     \rthToBth -> do
+      link bthSink
       link rthToBth
       res <- race (atomically $ waitBrickThread bth) (atomically $ waitCatchSTM ith)
       case res of
