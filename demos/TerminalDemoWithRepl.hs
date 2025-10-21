@@ -166,7 +166,7 @@ instance Exception UncaughtSpellException
 theapp :: ReplThread -> TChan Char -> App AppState AppEvent ()
 theapp rth ic = App {..}
   where
-    appDraw s = [drawTerminal () (s ^. term)]
+    appDraw s = [viewport () Vertical $ drawTerminal () (s ^. term)]
 
     appAttrMap _ = attrMap defAttr []
 
