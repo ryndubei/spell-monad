@@ -109,9 +109,11 @@ interpreter rth bth oq = forever do
   InterpretRequest{..} <- atomically $ takeInterpretRequest rth
   let ~(Spell s0) = toInterpret
       itr :: Free SpellF a -> IO a
-      itr = \case
+      itr = wrapExceptions . \case
         Pure a -> pure a -- done
-        Free (PutChar c next) -> do
+        -- Anything that a side effect is strict in, should be annotated with a
+        -- bang pattern on the match so that it gets covered by wrapExceptions.
+        Free (PutChar !c next) -> do
           atomically $ writeTQueue oq c
           itr next
         Free (GetChar next) -> do
@@ -127,9 +129,9 @@ interpreter rth bth oq = forever do
           -- though.
           c <- atomically $ takeBrickThread bth'
           itr (next c)
-        Free (Face (a,b) next) ->
+        Free (Face (!a,!b) next) -> do
           itr $ unSpell do
-            Spell.IO.putStrLn $ "Face: " ++ show (a,b)
+            Spell.IO.putStrLn $ "Face: " ++ wrapExceptions (show (a,b))
             Spell next
         Free (Firebolt next) -> do
           itr $ unSpell do
@@ -138,20 +140,22 @@ interpreter rth bth oq = forever do
         Free (Catch ~(Spell expr) h next) -> do
           a <- catch
             (itr expr)
-            (\e -> case h e of Nothing -> throwIO e; Just ~(Spell x) -> itr x)
+            \(~(UncaughtSpellException e)) -> case wrapExceptions (h e) of
+              Nothing -> throwIO (UncaughtSpellException e)
+              Just ~(Spell x) -> itr x
           itr (next a)
   catch
     do withAsync
-        (itr (wrapExceptions s0))
+        (itr s0)
         \a -> atomically do
           submit <- tryReadTMVar submitResponseHere
           -- in the case that submit is Nothing, means we do not wait for 'a'
           -- and exit the atomically block, killing the async thread.
-          traverse_ (waitSTM a >>=) submit
+          traverse_ ((waitSTM a >>=) . (. Right)) submit
     -- waitSTM will rethrow exceptions from 'a'
     \(~(UncaughtSpellException e)) -> atomically do
       submit <- tryReadTMVar submitResponseHere
-      traverse_ ($ throw e) submit
+      traverse_ ($ Left e) submit
   where
     wrapExceptions = mapException UncaughtSpellException
 

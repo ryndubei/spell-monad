@@ -26,12 +26,15 @@ import Data.Void
 import Control.Monad
 import Data.Foldable
 import Control.Monad.Fix
+import Data.Bifunctor
 
 -- | A request to carry out some side effects in the game.
 data InterpretRequest =
   forall a. Typeable a => InterpretRequest
-    { submitResponseHere :: TMVar (a -> STM ())
-      -- ^ Exceptions in 'a' are allowed.
+    { submitResponseHere :: TMVar (Either SomeException a -> STM ())
+      -- ^ Exceptions in 'a' are expected and allowed: represents a
+      -- lazy bottom value. SomeException when the computation terminated due
+      -- to a thrown exception.
       -- Becomes empty if no longer needed (e.g. due to an interrupt):
       -- in that case should stop the Spell computation ASAP.
       -- (TODO: Becomes an AsyncException if a response is no longer needed?)
@@ -39,7 +42,7 @@ data InterpretRequest =
     }
 
 -- | Guarantees that the InterpretRequest is invalidated when the continuation ends.
-withInterpretRequest :: Typeable a => Spell a -> ((InterpretRequest, TMVar a) -> IO b) -> IO b
+withInterpretRequest :: Typeable a => Spell a -> ((InterpretRequest, TMVar (Either SomeException a)) -> IO b) -> IO b
 withInterpretRequest toInterpret =
   bracket
     do
@@ -147,19 +150,23 @@ withReplThread k = do
                 -- or we get the response:
                 -- (UncaughtSpellException is a wrapper to not mistake an async
                 -- exception for one thrown by the player)
-                (Just . mapException UncaughtSpellException <$> takeTMVar response)
+                (Just . second (mapException UncaughtSpellException) <$> takeTMVar response)
                 -- otherwise block
 
           liftIO $ catch
-            -- evaluate to WHNF, do nothing if all okay
-            (evaluate u)
-            -- note: lazy pattern
+            (case u of
+              -- evaluate to WHNF, do nothing if all okay
+              Right () -> pure ()
+              Left e -> throwIO (UncaughtSpellException e)
+            )
+            -- note: lazy pattern as UncaughtSpellException is strict
             -- recursive, because exceptions can throw exceptions which throw exceptions...
             (fix \this (~(UncaughtSpellException ex)) -> do
-              let msg = mapException UncaughtSpellException displayException ex
+              let msg = mapException UncaughtSpellException (displayException ex)
               catch
                 -- need MaybeT here again because catch is in IO
-                (void . runMaybeT . for_ msg $ liftIO . evaluate >=> \c -> do
+                (void . runMaybeT . for_ msg $ \c -> do
+                  _ <- liftIO . evaluate $ mapException UncaughtSpellException c
                   hoistMaybe =<< (liftIO . atomically) do
                     b <- readTVar replInterrupt
                     if b
