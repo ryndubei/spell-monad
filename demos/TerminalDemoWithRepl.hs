@@ -21,7 +21,7 @@ import Control.Lens
 import Control.Concurrent.Async
 import Control.Monad
 import Control.Monad.IO.Class
-import Spell
+import Spell (Spell(..), SpellF(..))
 import Spell.IO
 import Control.Monad.Free
 import Data.Foldable
@@ -144,6 +144,7 @@ interpreter rth bth oq = forever do
               Nothing -> throwIO (UncaughtSpellException e)
               Just ~(Spell x) -> itr x
           itr (next a)
+        Free (Throw !e) -> throwIO (UncaughtSpellException e)
   catch
     do withAsync
         (itr s0)

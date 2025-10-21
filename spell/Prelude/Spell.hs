@@ -1,11 +1,13 @@
 {-# LANGUAGE NoImplicitPrelude #-}
+{-# LANGUAGE PatternSynonyms #-}
+
 module Prelude.Spell
   ( module Spell
+  , module Spell.Exception
   , module Spell.IO
   -- * base
   , module Prelude
-  -- * exceptions
-  , module Control.Monad.Catch
+  , module Control.Exception
   ) where
 
 import Spell
@@ -14,11 +16,24 @@ import Spell
   , face
   , putChar
   , getChar
+  , catch
+  , throwSpell
   )
+import Spell.Exception
 import Spell.IO
-import Control.Monad.Catch
-  ( MonadThrow(..)
-  , MonadCatch(..)
+import Control.Exception
+  -- a set of exceptions that may be encountered by the user, and are safe to
+  -- be caught
+  ( NoMethodError(..)
+  , NonTermination(..)
+  , PatternMatchFail(..)
+  , RecConError(..)
+  , RecSelError(..)
+  , RecUpdError(..)
+  , ErrorCall(..)
+  , pattern ErrorCall
+  , ArithException(..)
+  , AssertionFailed(..)
   )
 import Prelude hiding
   ( IO

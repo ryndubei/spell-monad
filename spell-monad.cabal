@@ -20,11 +20,11 @@ common warnings
 library spell
     import:           warnings
     exposed-modules:  Spell
+                    , Spell.Exception
                     , Spell.IO
                     , Prelude.Spell
     hs-source-dirs:   spell
     build-depends:    base
-                    , exceptions
                     , free
     default-language: GHC2021
 

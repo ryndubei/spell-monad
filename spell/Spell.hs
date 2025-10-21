@@ -6,14 +6,14 @@ module Spell
   , face
   , putChar
   , getChar
+  , catch
+  , throwSpell
   ) where
 
 import Control.Monad.Free
 import Prelude hiding (getChar, putChar)
-import Control.Monad.Catch
 import Data.Typeable
-import Control.Exception
-import GHC.Stack
+import Control.Exception (SomeException (..), Exception)
 
 newtype Spell a = Spell {
     unSpell :: Free SpellF a
@@ -29,6 +29,10 @@ data SpellF next
   | Face (Double, Double) next
   | forall a. Catch (Spell a) (SomeException -> Maybe (Spell a)) (a -> next)
   -- ^ NOTE: (base's) async exceptions won't be caught
+  | Throw SomeException
+  -- ^ we can't just do throwSpell = liftF . throw because imprecise exceptions
+  -- have different semantics from precise exceptions. Throwing precise
+  -- exceptions has to be a dedicated side effect.
   | PutChar Char next
   | GetChar (Char -> next)
 
@@ -43,12 +47,11 @@ data SpellF next
   -- | forall b. UninterruptibleMask ((forall a. Spell a -> Spell a) -> Spell b) (b -> next)
   -- -- ^ NOTE: applies only to Spell's own "async" exceptions (e.g. OutOfSideEffects)
 
-instance MonadThrow Spell where
-  throwM = liftF . throw
+throwSpell :: Exception e => e -> Spell a
+throwSpell = liftF . Throw . SomeException
 
-instance MonadCatch Spell where
-  catch :: (HasCallStack, Exception e) => Spell a -> (e -> Spell a) -> Spell a
-  catch s (h :: e -> Spell a) =
+catch :: Exception e => Spell a -> (e -> Spell a) -> Spell a
+catch s (h :: e -> Spell a) = 
     let h' (SomeException e) =
           case (cast e :: Maybe e) of
             Just e' -> Just (h e')

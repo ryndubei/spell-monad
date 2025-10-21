@@ -17,7 +17,7 @@ module App.Thread.Repl
 
 import Control.Concurrent.STM
 import Control.Exception
-import Spell
+import Spell (Spell)
 import Language.Haskell.Interpreter
 import Type.Reflection
 import Control.Concurrent.Async
