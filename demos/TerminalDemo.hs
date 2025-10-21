@@ -21,7 +21,7 @@ main = withAppThread \th -> do
   where
     term = (prompt .~ "foo> ") terminal
 
-theapp :: TQueue Void -> App Terminal Void ()
+theapp :: v -> App Terminal Void ()
 theapp _ = App {..}
   where
     appDraw s = [drawTerminal () s]
