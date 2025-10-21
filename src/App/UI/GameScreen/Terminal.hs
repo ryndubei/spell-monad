@@ -77,7 +77,7 @@ terminal = Terminal
   , _prompt = mempty
   , _cursorOffset = 0
   , _blocked = False
-  , _forceVisibleInputLine = False
+  , _forceVisibleInputLine = True
   }
 
 -- | The next character will be inserted at this index.
