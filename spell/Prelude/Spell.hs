@@ -7,6 +7,7 @@ module Prelude.Spell
   , module Spell.IO
   -- * base
   , module Prelude
+  , last
   , module Control.Exception
   ) where
 
@@ -54,4 +55,27 @@ import Prelude hiding
   , IOError
   , ioError
   , userError
+
+  , last
   )
+
+import GHC.Stack
+
+--------------------------------------------------------------------------------
+-- Prelude re-definitions
+--------------------------------------------------------------------------------
+
+-- | \(\mathcal{O}(n)\). Extract the last element of a list, which must be
+-- finite and non-empty.
+--
+-- >>> last [1, 2, 3]
+-- 3
+-- >>> last [1..]
+-- * Hangs forever *
+-- >>> last []
+-- *** Exception: Spell.Prelude.last: empty list
+--
+-- WARNING: This function is partial. You can use 'reverse' with case-matching,
+-- 'uncons' or 'listToMaybe' instead.
+last :: HasCallStack => [a] -> a
+last = foldl (\_ x -> x) (error "Spell.Prelude.last: empty list")

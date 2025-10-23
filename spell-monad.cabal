@@ -27,6 +27,25 @@ library spell
     build-depends:    base
                     , free
     default-language: GHC2021
+    -- If we have a non-allocating loop with -fomit-yields, some pure expressions
+    -- like last (repeat 0) cannot be interrupted. In fact, they starve out other
+    -- threads entirely, preventing anything from running. This is bad with
+    -- arbitrary user-submitted code. The solution is to not let the user run
+    -- anything that gets optimised into an infinite non-allocating loop, by
+    -- disabling the optimisation with -fno-omit-yields.
+    --
+    -- But just specifying this in cabal.project for all packages will not work:
+    -- the standard library is compiled with -fno-omit-yields. Since it's a boot
+    -- library (included with the compiler), we cannot recompile it with a
+    -- different set of flags.
+    --
+    -- So we instead have to go with a different solution: we compile only the
+    -- library we expose to the user with -fno-omit-yields, and redefine any
+    -- "dangerous" functions that might not terminate ourselves. This also means
+    -- that we get to keep the optimisation for everything but user-written code.
+    --
+    -- TODO: possibly just copy all of the standard Prelude verbatim
+    ghc-options: -fno-omit-yields
 
 library
     import:           warnings
@@ -87,7 +106,7 @@ executable spell-monad-exe
     main-is:          Main.hs
     other-modules:   
     hs-source-dirs:   app
-    ghc-options: -threaded
+    ghc-options: -threaded -with-rtsopts=-N
     build-depends:    base
                     , spell-monad
                     , async
@@ -105,7 +124,7 @@ executable terminal-demo
                     , lens
                     , stm
                     , vty
-    ghc-options: -threaded
+    ghc-options: -threaded -with-rtsopts=-N
 
 executable terminal-demo-with-repl
     import:           warnings
@@ -126,4 +145,4 @@ executable terminal-demo-with-repl
                     , text
                     , transformers
                     , vty
-    ghc-options: -threaded
+    ghc-options: -threaded -with-rtsopts=-N
