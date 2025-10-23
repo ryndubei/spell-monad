@@ -3,7 +3,8 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE RecursiveDo #-}
 {-# LANGUAGE OverloadedStrings #-}
-module App.UI.GameScreen (withGameUI, GameExit(..)) where
+{-# LANGUAGE ViewPatterns #-}
+module App.UI.GameScreen (withGameUI, GameExit(..), AppUserInput(..)) where
 
 import Control.Monad.IO.Class
 import App.Thread
@@ -28,6 +29,11 @@ import Control.Parallel.Strategies (parMap, rdeepseq)
 import App.UI.GameScreen.Terminal
 import Graphics.Vty.Input
 import Control.Monad
+import Control.Concurrent.Async
+import Control.Monad.State.Strict
+import Data.Char
+import Control.Applicative
+import Data.Maybe
 
 data Name
   = TerminalCursor
@@ -47,14 +53,16 @@ data AppState = AppState
   , _term :: Terminal
   }
 
+data AppUserInput = GameInput UserInput | TermStdin Char
+
 data TerminalFocus = Invisible | VisibleUnfocused | VisibleFocused deriving Eq
 
 data GameExit = ExitDesktop | ExitMainMenu
 
 makeLenses ''AppState
 
-withGameUI :: AppThread -> SimState -> (BrickThread (Maybe GameExit) (Either SimState [SimEvent]) UserInput -> IO a) -> IO a
-withGameUI th ss0 k = do
+withGameUI :: AppThread -> ReplThread -> SimState -> (BrickThread (Maybe GameExit) (Either SimState [SimEvent]) AppUserInput -> IO a) -> IO a
+withGameUI th rth ss0 k = do
   v <- appThreadVty th
   _windowSize <- displayBounds (outputIface v)
   let s0 = AppState
@@ -66,10 +74,32 @@ withGameUI th ss0 k = do
         , _terminalFocus = VisibleUnfocused
         , _term = (prompt .~ "Spell> ") terminal
         }
-  withBrickThread th theapp s0 $ k . mapBrickResult (^. gameExit)
+  withBrickThread th (theapp rth) s0 \bth -> do
+    withAsync
+      do
+        lastStatus <- atomically $ replStatus rth >>= newTVar
+        -- dupBrickThreadIn prevents competition with threads sending to bth
+        bth' <- lmap Left <$> atomically (dupBrickThreadIn bth)
+        forever $ atomically do
+          isBrickQueueEmpty bth' >>= check 
+          statusChanged <- isJust <$> optional do
+            status1 <- readTVar lastStatus
+            status <- replStatus rth
+            check (not $ status `sameStatus` status1)
+            writeTVar lastStatus status
+            sendBrickEvent bth' ReplStatusChange
+          receivedOutput <- isJust <$> optional do 
+            cs <- some (getReplResult rth >>= maybe retry pure)
+            sendBrickEvent bth' (ReplOutput cs)
+          check (statusChanged || receivedOutput)
+      \rthMonitor -> do
+        link rthMonitor
+        k . mapBrickResult (^. gameExit) $ lmap Right bth
 
-theapp :: TChan UserInput -> App AppState (Either SimState [SimEvent]) Name
-theapp c = App {..}
+data ReplEvent = ReplStatusChange | ReplOutput String
+
+theapp :: ReplThread -> TChan AppUserInput -> App AppState (Either ReplEvent (Either SimState [SimEvent])) Name
+theapp rth c = App {..}
   where
     appDraw s =
       [
@@ -109,42 +139,34 @@ theapp c = App {..}
           terminalFocus .= VisibleFocused
         Invisible -> terminalFocus .= Invisible
 
-    appHandleEvent e@(VtyEvent (EvKey k m)) = do
+    appHandleEvent (VtyEvent (EvKey KPageDown _)) = do
       fc <- use terminalFocus
       case fc of
         VisibleFocused -> do
-          case k of
-            KPageUp -> do
-              Brick.zoom term $ forceVisibleInputLine .= False
-              vScrollBy (viewportScroll TerminalViewport) (-1)
-            KPageDown ->
-              vScrollBy (viewportScroll TerminalViewport) 1
-            _ -> do
-              -- TODO: send as input
-              txts <- Brick.zoom term $ do
-                forceVisibleInputLine .= True
-                handleTerminalEvent e
-              pure ()
-        _ -> do
-          traverse_ (liftIO . atomically . writeTChan c) (directInput k m)
-          continueWithoutRedraw -- input forwarded directly to simulation thread, not immediately visible
+          vScrollBy (viewportScroll TerminalViewport) 1
+        _ -> pure ()
+    appHandleEvent (VtyEvent (EvKey KPageUp _)) = do
+      fc <- use terminalFocus
+      case fc of
+        VisibleFocused -> do
+          Brick.zoom term $ forceVisibleInputLine .= False
+          vScrollBy (viewportScroll TerminalViewport) (-1)
+        _ -> pure ()
 
-    appHandleEvent (AppEvent (Left ss)) = L.assign simState ss
-    appHandleEvent (AppEvent (Right se)) = do
+    appHandleEvent (AppEvent (Right (Left ss))) = L.assign simState ss
+    appHandleEvent (AppEvent (Right (Right se))) = do
       let se' = mconcat se
       -- Prune existing logs
       logLines %= (\ll -> Seq.drop (max 0 $ length ll - 20) ll)
       logIndex %= (+ length (simLogs se'))
       logLines %= (<> simLogs se')
+    appHandleEvent (AppEvent (Left ReplStatusChange)) =
+      get >>= liftIO . atomically . handleReplStatusChange rth >>= put
+    appHandleEvent (AppEvent (Left (ReplOutput cs))) =
+      Brick.zoom term $ traverse_ pushOutput cs
+
     appHandleEvent (VtyEvent (EvResize w h)) =
       windowSize .= (w,h)
-
-    appHandleEvent e@(VtyEvent (EvPaste _)) = do
-      fc <- use terminalFocus
-      when (fc == VisibleFocused) do
-        -- TODO: send as input
-        txts <- Brick.zoom term $ handleTerminalEvent e
-        pure ()
 
     appHandleEvent (MouseDown TerminalViewport BScrollUp _ _) = do
       Brick.zoom term $ forceVisibleInputLine .= False
@@ -159,7 +181,7 @@ theapp c = App {..}
       when (fc == VisibleFocused) $
         terminalFocus .= VisibleUnfocused
 
-    appHandleEvent _ = pure ()
+    appHandleEvent e = handleOutgoingEvent rth c e
 
     appChooseCursor s =
       if s ^. terminalFocus == VisibleFocused
@@ -167,7 +189,108 @@ theapp c = App {..}
         else pure Nothing
 
     appStartEvent = do
+      s <- get
+      s' <- liftIO . atomically $ handleReplStatusChange rth s
+      put s'
       makeVisible TerminalCursor
+
+handleReplStatusChange :: ReplThread -> AppState -> STM AppState
+handleReplStatusChange rth s = do
+  rs <- replStatus rth
+  let f = pure . flip execState s
+  case rs of
+    Initialising -> f $ Brick.zoom term do
+      blocked .= True
+      prompt .= initialisingPrompt
+    Blocked -> f (Brick.zoom term blockTerm)
+    Unblocked -> f (Brick.zoom term unblockTerm)
+    Dead (Left e) -> throwSTM e
+    Dead (Right e) -> throwSTM . userError $ "Interpreter error: " ++ show e
+
+-- | Events that relay anything to either the ReplThread or the TChan are handled here.
+--
+-- Assumed: this is the only function handling the given event, so we are free to call
+-- continueWithoutRedraw where appropriate.
+handleOutgoingEvent :: ReplThread -> TChan AppUserInput -> BrickEvent n a -> EventM n AppState ()
+handleOutgoingEvent rth tc = \e -> do
+  s <- get
+  s' <- go e s
+  put s'
+  where
+    go (VtyEvent (EvKey (KChar 'c') ms)) s@((^. terminalFocus) -> VisibleFocused) | MCtrl `elem` ms = do
+      interrupted <- liftIO $ atomically do
+        b <- replStatus rth
+        case b of
+          Blocked -> do
+            interruptRepl rth
+            pure True
+          _ -> pure False
+      if interrupted
+        then do
+          -- running interruptRepl guarantees an immediate unblock for submitRepl
+          pure $ flip execState s do
+            Brick.zoom term unblockTerm
+            Brick.zoom term $ pushOutputLine "Interrupted."
+        else pure s
+
+    go e s@((^. terminalFocus) -> VisibleFocused) = do
+      s' <- liftIO $ atomically do
+        s' <- handleReplStatusChange rth s
+        let (t, s'')
+              = flip runState s'
+              . fmap T.unlines
+              . Brick.zoom term
+              $ handleTerminalEvent e
+        -- since we've handled the repl status change, term will be blocked iff
+        -- the REPL is blocked, so submitRepl will not block
+        if T.null (T.filter (not . isSpace) t)
+          then pure s''
+          else do
+            submitRepl rth $ T.unpack t
+            pure $ execState (Brick.zoom term blockTerm) s''
+
+      -- send entered keys to 'stdin' for the GetChar effect
+      case e of
+        VtyEvent (EvKey (KChar c) _) -> liftIO . atomically $ writeTChan tc (TermStdin c)
+        _ -> pure ()
+
+      case e of
+        -- Force visible input line if it's a key
+        -- TODO: ugly, should instead have Terminal.hs return if the input event
+        -- recognised and responded to or not, then scroll to input according to
+        -- that
+        VtyEvent (EvKey _ _) -> pure $ execState (Brick.zoom term $ forceVisibleInputLine .= True) s'
+        _ -> pure s'
+
+    go (VtyEvent (EvKey k m)) s = do
+      traverse_ (liftIO . atomically . writeTChan tc . GameInput) (directInput k m)
+      -- We assume there is no event handling other than this, hence no visible
+      -- effects.
+      continueWithoutRedraw
+      pure s
+    
+    go _ s = do
+      continueWithoutRedraw
+      pure s
+
+unblockedPrompt :: String
+unblockedPrompt = "foo> "
+
+blockedPrompt :: String
+blockedPrompt = ""
+
+initialisingPrompt :: String
+initialisingPrompt = "Initialising..."
+
+blockTerm :: MonadState Terminal m => m ()
+blockTerm = do
+  prompt .= blockedPrompt
+  blocked .= True
+
+unblockTerm :: MonadState Terminal m => m ()
+unblockTerm = do
+  prompt .= unblockedPrompt
+  blocked .= False
 
 drawLogs :: Int -> Seq Text -> Widget Name
 drawLogs logIdx sq = viewport LogViewport Vertical

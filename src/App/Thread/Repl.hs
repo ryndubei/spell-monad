@@ -13,6 +13,7 @@ module App.Thread.Repl
   , getReplResult
   , interruptRepl
   , takeInterpretRequest
+  , sameStatus
   ) where
 
 import Control.Concurrent.STM
@@ -184,6 +185,14 @@ withReplThread k = do
 
       pure $ either id absurd e
     \replThreadAsync -> k ReplThread{..}
+
+-- | An equivalence relation for ReplStatus
+sameStatus :: ReplStatus -> ReplStatus -> Bool
+sameStatus Initialising Initialising = True
+sameStatus Unblocked Unblocked = True
+sameStatus Blocked Blocked = True
+sameStatus (Dead _) (Dead _) = True
+sameStatus _ _ = False
 
 newtype UncaughtSpellException = UncaughtSpellException SomeException deriving Show
 instance Exception UncaughtSpellException

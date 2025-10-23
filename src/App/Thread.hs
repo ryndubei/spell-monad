@@ -12,7 +12,8 @@ module App.Thread
   , waitBrickThread
   , mapBrickResult
   , takeBrickThread
-  , dupBrickThread
+  , dupBrickThreadIn
+  , dupBrickThreadOut
   , SFThread
   , sendSFThread
   , takeSFThread
@@ -197,17 +198,21 @@ waitBrickThread BrickThread{brickAsync} = Data.Bifunctor.second fst <$> waitCatc
 takeBrickThread :: BrickThread r e o -> STM o
 takeBrickThread BrickThread{outputTChan, outputMapper} = outputMapper <$> readTChan outputTChan
 
--- | Duplicate the BrickThread's output and input streams, allowing it to be
--- used independently from a different thread.
---
--- > (dupBrickThread bth >>= takeBrickThread) = retry
+-- | Duplicate the BrickThread's input stream, allowing it to be pushed to
+-- independently from a different thread.
 --
 -- > (dupBrickThread bth >>= isBrickQueueEmpty) = isBrickQueueEmpty bth
-dupBrickThread :: BrickThread r e o -> STM (BrickThread r e o)
-dupBrickThread BrickThread{..} = do
-  o <- dupTChan outputTChan
+dupBrickThreadIn :: BrickThread r e o -> STM (BrickThread r e o)
+dupBrickThreadIn BrickThread{..} = do
   l <- readTVar emptiedLocal >>= newTVar
-  pure BrickThread{outputTChan = o, emptiedLocal = l, ..}
+  pure BrickThread{emptiedLocal = l, ..}
+
+-- | Duplicate the BrickThread's output stream, allowing it to be consumed
+-- independently from a different thread.
+dupBrickThreadOut :: BrickThread r e o -> STM (BrickThread r e o)
+dupBrickThreadOut BrickThread{..} = do
+  tc <- dupTChan outputTChan
+  pure BrickThread{outputTChan = tc, ..}
 
 maxDelay :: Num a => a
 maxDelay = 30 * 10^(3 :: Int) -- 30ms in microseconds

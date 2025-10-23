@@ -27,16 +27,19 @@ data SimState = SimState
 data SimEvent = SimEvent
   { simLogs :: Seq Text
   , gameOver :: !Bool
+  , spellOutput :: String -- ^ for the PutChar side effect
   }
 
+-- | Should associate operations to the right (prepend), as is default for <>.
 instance Semigroup SimEvent where
   (<>) s1 s2 = SimEvent
     { simLogs = simLogs s1 <> simLogs s2
     , gameOver = gameOver s1 || gameOver s2
+    , spellOutput = spellOutput s1 ++ spellOutput s2
     }
 
 instance Monoid SimEvent where
-  mempty = SimEvent { simLogs = mempty, gameOver = False }
+  mempty = SimEvent { simLogs = mempty, gameOver = False, spellOutput = mempty }
 
 simSF :: SF (Event UserInput) (SimState, Event SimEvent)
 simSF = proc u -> do
@@ -58,7 +61,7 @@ simSF = proc u -> do
     , cameraY = 0
     }, mergeBy (<>) (fmap evt u) stateLogSimEvent)
   where
-    evt u = SimEvent { gameOver = False, simLogs = Seq.fromList [T.pack $ show u] }
+    evt u = mempty { simLogs = Seq.fromList [T.pack $ show u] }
 
 data PlayerState = PlayerState
   { playerPos :: !(Double, Double)

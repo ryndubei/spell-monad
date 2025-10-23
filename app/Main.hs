@@ -61,7 +61,10 @@ runGame th = evalContT do
   -- (ideally does not block at all on first output)
   s0 <- lift . atomically $ takeSFThread sfth
 
-  bth <- ContT $ withGameUI th s0
+  -- TODO: loading screen until rth is initialised
+  rth <- ContT withReplThread
+
+  bth <- ContT $ withGameUI th rth s0
 
   sfToBrickTh <- ContT . withAsync . forever $ atomically do
     b <- isBrickQueueEmpty bth
@@ -70,7 +73,11 @@ runGame th = evalContT do
     flushSFThreadEvents sfth >>= sendBrickEvent bth . Right
   lift $ link sfToBrickTh
 
-  brickToSfTh <- ContT . withAsync . forever $ atomically (takeBrickThread bth >>= sendSFThread sfth)
+  brickToSfTh <- ContT . withAsync . forever $ atomically do
+    aui <- takeBrickThread bth
+    case aui of
+      GameInput ui -> sendSFThread sfth ui
+      TermStdin _ -> pure () -- TODO
   lift $ link brickToSfTh
 
   firstExit <- lift $ race (atomically $ waitBrickThread bth) (atomically $ waitSFThread sfth)

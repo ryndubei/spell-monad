@@ -35,14 +35,6 @@ makeLenses ''AppState
 
 data AppEvent = ReplStatusUpdate | Output String
 
--- | An equivalence relation for ReplStatus
-sameStatus :: ReplStatus -> ReplStatus -> Bool
-sameStatus Initialising Initialising = True
-sameStatus Unblocked Unblocked = True
-sameStatus Blocked Blocked = True
-sameStatus (Dead _) (Dead _) = True
-sameStatus _ _ = False
-
 main :: IO ()
 main =
   newTQueueIO >>= \oq ->
@@ -118,7 +110,7 @@ interpreter rth bth oq = forever do
           itr next
         Free (GetChar next) -> do
           -- record next user input:
-          bth' <- atomically $ dupBrickThread bth
+          bth' <- atomically $ dupBrickThreadOut bth
           -- This is brittle: if we have multiple consecutive GetChar effects,
           -- there may be brief intervals between them where we are not listening
           -- for user input.
