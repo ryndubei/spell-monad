@@ -61,8 +61,10 @@ runGame th = evalContT do
   -- (ideally does not block at all on first output)
   s0 <- lift . atomically $ takeSFThread sfth
 
-  -- TODO: loading screen until rth is initialised
   rth <- ContT withReplThread
+
+  -- TODO: have a loading screen instead of blocking
+  lift . atomically $ replStatus rth >>= check . not . sameStatus Initialising
 
   bth <- ContT $ withGameUI th rth s0
 

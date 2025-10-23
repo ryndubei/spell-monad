@@ -82,6 +82,16 @@ data ReplThread = ReplThread
       -- ^ Should not send any input until this is False.
   }
 
+-- Should only set replInitialised to True when this is done
+initialiseInterpreter :: MonadInterpreter m => m ()
+initialiseInterpreter = do
+  setImports ["Prelude.Spell"]
+  
+  -- The first interpreted value takes a lot longer than subsequent values,
+  -- hence the repl isn't really initialised until this is done
+  u <- interpret "putChar 'a'" (as :: Spell ())
+  void . liftIO $ evaluate u
+
 withReplThread :: (ReplThread -> IO a) -> IO a
 withReplThread k = do
   toCompile <- newEmptyTMVarIO
@@ -97,7 +107,7 @@ withReplThread k = do
   withAsync
     do
       e <- runInterpreter $ do
-        setImports ["Prelude.Spell"]
+        initialiseInterpreter
         liftIO . atomically $ writeTVar replInitialised True
 
         forever . runMaybeT $ do
