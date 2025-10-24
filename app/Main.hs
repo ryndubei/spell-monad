@@ -16,6 +16,7 @@ import System.Exit
 import Control.Concurrent.Async
 import Control.Monad.Cont
 import Control.Monad.Trans
+import App.UI.LoadingScreen
 
 -- TODO: exception hierarchy
 
@@ -63,8 +64,7 @@ runGame th = evalContT do
 
   rth <- ContT withReplThread
 
-  -- TODO: have a loading screen instead of blocking
-  lift . atomically $ replStatus rth >>= check . not . sameStatus Initialising
+  lift $ withLoadingScreen th $ atomically $ replStatus rth >>= check . not . sameStatus Initialising
 
   bth <- ContT $ withGameUI th rth s0
 

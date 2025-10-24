@@ -52,6 +52,7 @@ library
     exposed-modules:  App.UI.MainMenu
                     , App.UI.GameScreen
                     , App.UI.GameScreen.Terminal
+                    , App.UI.LoadingScreen
                     , App.Thread
                     , App.Thread.Repl
                     , Input
