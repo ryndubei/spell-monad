@@ -8,6 +8,7 @@ import Simulation.Input
 import Control.Lens
 import GHC.Generics
 import Control.DeepSeq
+import Data.Sequence (Seq)
 
 -- | Tells the UI thread how an object should be drawn.
 data ObjectIdentifier = Player deriving (Eq, Ord, Show, Generic)
@@ -22,14 +23,15 @@ data SimState = SimState
 
 data SimEvent = SimEvent
   { gameOver :: !Bool
-  , spellOutput :: String -- ^ for the PutChar side effect
+  , spellOutput :: Seq Char -- ^ for the PutChar side effect.
+                            -- Not a String, so that left or right associativity
+                            -- does not matter and finiteness is enforced.
   }
 
--- | Should associate operations to the right (prepend), as is default for <>.
 instance Semigroup SimEvent where
   (<>) s1 s2 = SimEvent
     { gameOver = gameOver s1 || gameOver s2
-    , spellOutput = spellOutput s1 ++ spellOutput s2
+    , spellOutput = spellOutput s1 <> spellOutput s2
     }
 
 instance Monoid SimEvent where
