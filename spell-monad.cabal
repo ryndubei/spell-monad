@@ -107,7 +107,7 @@ executable spell-monad-exe
     main-is:          Main.hs
     other-modules:   
     hs-source-dirs:   app
-    ghc-options: -threaded -with-rtsopts=-N
+    ghc-options: -threaded
     build-depends:    base
                     , spell-monad
                     , async
@@ -125,7 +125,7 @@ executable terminal-demo
                     , lens
                     , stm
                     , vty
-    ghc-options: -threaded -with-rtsopts=-N
+    ghc-options: -threaded
 
 executable terminal-demo-with-repl
     import:           warnings
@@ -146,4 +146,4 @@ executable terminal-demo-with-repl
                     , text
                     , transformers
                     , vty
-    ghc-options: -threaded -with-rtsopts=-N
+    ghc-options: -threaded
