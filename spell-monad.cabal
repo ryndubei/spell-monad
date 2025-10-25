@@ -71,30 +71,18 @@ library
                     , containers
                     , data-clist
                     , deepseq
-                    , directory
                     , dunai
-                    , effectful
-                    , filepath
                     , free
                     , hint
                     , lens
-                    , linear
-                    , logging-effect
-                    , monad-schedule
                     , mtl
-                    , mmorph
                     , parallel
-                    , prettyprinter
                     , profunctors
                     , transformers
-                    , some
                     , stm
                     , text
-                    , text-show
                     , time
-                    , unliftio
                     , vector
-                    , vector-sized
                     , vty
                     , vty-crossplatform
 
@@ -140,7 +128,6 @@ executable terminal-demo-with-repl
                     , containers
                     , free
                     , lens
-                    , mmorph
                     , mtl
                     , stm
                     , text
