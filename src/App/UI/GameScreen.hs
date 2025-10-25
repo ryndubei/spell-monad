@@ -14,9 +14,6 @@ import Brick
 import Control.Lens
 import Graphics.Vty (defAttr, Vty (outputIface), displayBounds)
 import qualified Control.Lens as L
-import Data.Text (Text)
-import Data.Sequence (Seq)
-import qualified Data.Sequence as Seq
 import Brick.Widgets.Border
 import Brick.Widgets.Center
 import Control.Concurrent.STM
@@ -46,8 +43,6 @@ data Name
 data AppState = AppState
   { _gameExit :: !(Maybe GameExit)
   , _simState :: !SimState
-  , _logLines :: Seq Text
-  , _logIndex :: !Int
   , _windowSize :: DisplayRegion
   , _terminalFocus :: TerminalFocus
   , _term :: Terminal
@@ -68,8 +63,6 @@ withGameUI th rth ss0 k = do
   let s0 = AppState
         { _gameExit = Nothing
         , _simState = ss0
-        , _logLines = mempty
-        , _logIndex = 0
         , _windowSize
         , _terminalFocus = VisibleUnfocused
         , _term = (prompt .~ "Spell> ") terminal
@@ -156,10 +149,7 @@ theapp rth c = App {..}
     appHandleEvent (AppEvent (Right (Left ss))) = L.assign simState ss
     appHandleEvent (AppEvent (Right (Right se))) = do
       let se' = mconcat se
-      -- Prune existing logs
-      logLines %= (\ll -> Seq.drop (max 0 $ length ll - 20) ll)
-      logIndex %= (+ length (simLogs se'))
-      logLines %= (<> simLogs se')
+      pure ()
     appHandleEvent (AppEvent (Left ReplStatusChange)) =
       get >>= liftIO . atomically . handleReplStatusChange rth >>= put
     appHandleEvent (AppEvent (Left (ReplOutput cs))) =
@@ -291,15 +281,6 @@ unblockTerm :: MonadState Terminal m => m ()
 unblockTerm = do
   prompt .= unblockedPrompt
   blocked .= False
-
-drawLogs :: Int -> Seq Text -> Widget Name
-drawLogs logIdx sq = viewport LogViewport Vertical
-  . vBox
-  . zipWith (\i w -> str (show i ++ " ") <+> w) [logIdx - length sq ..]
-  . toList
-  . (L._last %~ visible)
-  . fmap txt
-  $ sq
 
 drawSimState :: AttrMap -> DisplayRegion -> SimState -> Widget Name
 drawSimState attrmap (width, height) SimState{..} = raw displayedSimState
