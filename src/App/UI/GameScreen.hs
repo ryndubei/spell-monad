@@ -274,7 +274,7 @@ handleOutgoingEvent rth tc = \e -> do
       pure s
 
 unblockedPrompt :: String
-unblockedPrompt = "foo> "
+unblockedPrompt = "spell> "
 
 blockedPrompt :: String
 blockedPrompt = ""
