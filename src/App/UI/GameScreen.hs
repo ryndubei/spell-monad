@@ -147,9 +147,11 @@ theapp rth c = App {..}
         _ -> pure ()
 
     appHandleEvent (AppEvent (Right (Left ss))) = L.assign simState ss
-    appHandleEvent (AppEvent (Right (Right se))) = do
+    appHandleEvent (AppEvent (Right (Right se))) =
       let se' = mconcat se
-      pure ()
+       in case se' of
+        SimEvent { spellOutput } -> do
+          Brick.zoom term (traverse_ pushOutput spellOutput)
     appHandleEvent (AppEvent (Left ReplStatusChange)) =
       get >>= liftIO . atomically . handleReplStatusChange rth >>= put
     appHandleEvent (AppEvent (Left (ReplOutput cs))) =
