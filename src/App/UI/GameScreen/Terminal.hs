@@ -274,12 +274,16 @@ drawTerminal
   => n -- ^ Cursor name
   -> Terminal
   -> Widget n
-drawTerminal cursorName t = (if t ^. blocked then id else showCursor cursorName cursorLoc)
+drawTerminal cursorName t
+  = makeCursor
   . vBox
   $ vBox hs
   : [ outputLineStr | not (null $ t ^. outputLine) ]
-  ++ [ (if t ^. forceVisibleInputLine then visible else id) (str finalLine) ]
+  ++ [ str finalLine ]
   where
+    makeCursor =
+      (if t ^. forceVisibleInputLine then visibleRegion cursorLoc (1,1) else id)
+      . (if t ^. blocked then putCursor cursorName cursorLoc else showCursor cursorName cursorLoc)
     hs = map txt . toList $ Seq.reverse (t ^. history)
     outputLineStr = str $ toList (t ^. outputLine)
     finalLine = (t ^. prompt) ++ toList (t ^. inputLine)
