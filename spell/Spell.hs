@@ -19,12 +19,13 @@ import Control.Exception (SomeException (..), Exception)
 import Data.Functor.Identity
 import Control.Monad.Trans.Class
 import Data.Coerce
+import Control.Monad.IO.Class
 
 -- | The Spell monad transformer, allowing interleaved side effects. For use by
 -- compiled code. Should not be exposed to the user.
 newtype SpellT m a = SpellT {
   unSpellT :: FreeT (SpellF m) m a
-} deriving (Functor, Applicative, Monad, MonadFree (SpellF m))
+} deriving (Functor, Applicative, Monad, MonadFree (SpellF m), MonadIO)
 
 instance MonadTrans SpellT where
   {-# INLINE lift #-}
