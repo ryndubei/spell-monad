@@ -57,6 +57,8 @@ data SpellF m next
   -- | forall b. UninterruptibleMask ((forall a. Spell a -> Spell a) -> Spell b) (b -> next)
   -- -- ^ NOTE: applies only to Spell's own "async" exceptions (e.g. OutOfSideEffects)
 
+deriving instance Functor (SpellF m)
+
 -- | 'liftF' for 'Spell'
 liftSpellF :: SpellF Identity a -> Spell a
 liftSpellF = coerce . (liftF @_ @(SpellT Identity))
@@ -73,8 +75,6 @@ catch s (h :: e -> Spell a) =
             Just e' -> Just (coerce $ h e')
             Nothing -> Nothing
      in Spell . FreeT . Identity . Free $ Catch s' h' pure
-
-deriving instance Functor (SpellF m)
 
 firebolt :: Spell ()
 firebolt = liftSpellF (Firebolt ())
