@@ -14,7 +14,6 @@ module Spell
 
 import Control.Monad.Trans.Free
 import Prelude hiding (getChar, putChar)
-import Data.Typeable
 import Control.Exception (SomeException (..), Exception)
 import Data.Functor.Identity
 import Control.Monad.Trans.Class
@@ -38,7 +37,7 @@ newtype Spell a = Spell { unSpell :: FreeT (SpellF Identity) Identity a }
 data SpellF m next
   = Firebolt next
   | Face (Double, Double) next
-  | forall a. Catch (SpellT m a) (SomeException -> Maybe (SpellT m a)) (a -> next)
+  | forall a e. Exception e => Catch (SpellT m a) (e -> SpellT m a) (a -> next)
   -- ^ NOTE: (base's) async exceptions won't be caught
   | Throw SomeException
   -- ^ we can't just do throwSpell = liftF . throw because imprecise exceptions
@@ -70,11 +69,7 @@ throwSpell = liftSpellF . Throw . SomeException
 catch :: forall e a. Exception e => Spell a -> (e -> Spell a) -> Spell a
 catch s (h :: e -> Spell a) = 
     let s' = coerce s :: SpellT Identity a
-        h' :: SomeException -> Maybe (SpellT Identity a)
-        h' (SomeException e) =
-          case (cast e :: Maybe e) of
-            Just e' -> Just (coerce $ h e')
-            Nothing -> Nothing
+        h' = fmap (SpellT . unSpell) h
      in Spell . FreeT . Identity . Free $ Catch s' h' pure
 
 firebolt :: Spell ()
