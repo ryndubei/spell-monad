@@ -1,6 +1,8 @@
 {-# LANGUAGE NoImplicitPrelude #-}
+{-# LANGUAGE DerivingVia #-}
 module Spell
   ( Spell(..)
+  , SpellT(..)
   , SpellF(..)
   , firebolt
   , face
@@ -10,24 +12,32 @@ module Spell
   , throwSpell
   ) where
 
-import Control.Monad.Free
+import Control.Monad.Trans.Free
 import Prelude hiding (getChar, putChar)
 import Data.Typeable
 import Control.Exception (SomeException (..), Exception)
+import Data.Functor.Identity
+import Control.Monad.Trans.Class
+import Data.Coerce
 
-newtype Spell a = Spell {
-    unSpell :: Free SpellF a
-    -- ^ exceptions are not in an ExceptT because we want to allow for catching
-    -- e.g. divisions by zero
-    --
-    -- This means that Spell must be interpreted within IO.
-  }
-  deriving (Functor, Applicative, Monad, MonadFree SpellF)
+-- | The Spell monad transformer, allowing interleaved side effects. For use by
+-- compiled code. Should not be exposed to the user.
+newtype SpellT m a = SpellT {
+  unSpellT :: FreeT (SpellF m) m a
+} deriving (Functor, Applicative, Monad, MonadFree (SpellF m))
 
-data SpellF next
+instance MonadTrans SpellT where
+  {-# INLINE lift #-}
+  lift = SpellT . lift
+
+newtype Spell a = Spell { unSpell :: FreeT (SpellF Identity) Identity a }
+  -- list of instances deliberately kept more sparse than SpellT
+  deriving (Functor, Applicative, Monad) via (SpellT Identity)
+
+data SpellF m next
   = Firebolt next
   | Face (Double, Double) next
-  | forall a. Catch (Spell a) (SomeException -> Maybe (Spell a)) (a -> next)
+  | forall a. Catch (SpellT m a) (SomeException -> Maybe (SpellT m a)) (a -> next)
   -- ^ NOTE: (base's) async exceptions won't be caught
   | Throw SomeException
   -- ^ we can't just do throwSpell = liftF . throw because imprecise exceptions
@@ -47,27 +57,33 @@ data SpellF next
   -- | forall b. UninterruptibleMask ((forall a. Spell a -> Spell a) -> Spell b) (b -> next)
   -- -- ^ NOTE: applies only to Spell's own "async" exceptions (e.g. OutOfSideEffects)
 
+-- | 'liftF' for 'Spell'
+liftSpellF :: SpellF Identity a -> Spell a
+liftSpellF = coerce . (liftF @_ @(SpellT Identity))
+
 throwSpell :: Exception e => e -> Spell a
-throwSpell = liftF . Throw . SomeException
+throwSpell = liftSpellF . Throw . SomeException
 
-catch :: Exception e => Spell a -> (e -> Spell a) -> Spell a
+catch :: forall e a. Exception e => Spell a -> (e -> Spell a) -> Spell a
 catch s (h :: e -> Spell a) = 
-    let h' (SomeException e) =
+    let s' = coerce s :: SpellT Identity a
+        h' :: SomeException -> Maybe (SpellT Identity a)
+        h' (SomeException e) =
           case (cast e :: Maybe e) of
-            Just e' -> Just (h e')
+            Just e' -> Just (coerce $ h e')
             Nothing -> Nothing
-     in Spell . Free $ Catch s h' pure
+     in Spell . FreeT . Identity . Free $ Catch s' h' pure
 
-deriving instance Functor SpellF
+deriving instance Functor (SpellF m)
 
 firebolt :: Spell ()
-firebolt = liftF (Firebolt ())
+firebolt = liftSpellF (Firebolt ())
 
 face :: (Double, Double) -> Spell ()
-face v = liftF (Face v ())
+face v = liftSpellF (Face v ())
 
 putChar :: Char -> Spell ()
-putChar c = liftF (PutChar c ())
+putChar c = liftSpellF (PutChar c ())
 
 getChar :: Spell Char
-getChar = liftF (GetChar id)
+getChar = liftSpellF (GetChar id)

@@ -26,6 +26,7 @@ library spell
     hs-source-dirs:   spell
     build-depends:    base
                     , free
+                    , transformers
     default-language: GHC2021
     -- If we have a non-allocating loop with -fomit-yields, some pure expressions
     -- like last (repeat 0) cannot be interrupted. In fact, they starve out other
@@ -73,6 +74,7 @@ library
                     , data-clist
                     , deepseq
                     , dunai
+                    , effectful
                     , free
                     , hint
                     , lens
@@ -102,6 +104,7 @@ executable spell-monad-exe
                     , async
                     , mtl
                     , stm
+                    , these
 
 executable terminal-demo
     import:           warnings
