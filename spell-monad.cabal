@@ -55,6 +55,7 @@ library
                     , App.UI.LoadingScreen
                     , App.Thread
                     , App.Thread.Repl
+                    , App.Thread.SF
                     , Input
                     , Simulation
                     , Simulation.Input
