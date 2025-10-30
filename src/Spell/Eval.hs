@@ -15,6 +15,10 @@ import Control.Monad
 -- Guarantees that any exceptions in _strict_ values passed to SpellF effects
 -- (and in SpellF itself) are caught.
 --
+-- TODO: figure out whether all values passed with Spell effects will be strict
+-- or themselves 'Spell a' values for some 'a'. It sounds plausible, and would
+-- be a useful property if true.
+--
 -- Note: does not interpret anything, including neither 'catch' nor 'throwSpell'
 evaluateSpell :: forall a. Spell a -> SpellT (ExceptT SomeException IO) a
 evaluateSpell = SpellT . evalBranches . evalWhnf . unSpell
