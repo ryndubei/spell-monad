@@ -60,6 +60,7 @@ library
                     , Input
                     , Simulation
                     , Simulation.Input
+                    , Spell.Eval
     default-extensions:
         Arrows
         TypeFamilies
