@@ -9,9 +9,13 @@ module App.Thread.SF
   , waitSFThread
   , flushSFThreadEvents
   , mapDiscreteOutput
+  
+  -- * Helpers for signal functions
+  , morphSF
+  , generaliseSF
   ) where
 
-import FRP.Yampa
+import FRP.BearRiver
 import Control.Concurrent.STM
 import Control.Concurrent.Async
 import Data.Time
@@ -19,6 +23,17 @@ import Control.Exception
 import Data.Profunctor
 import Control.Concurrent
 import Data.Maybe
+import Control.Monad.IO.Class
+import Control.Monad.Trans.MSF
+import Data.Functor.Identity
+
+generaliseSF :: Monad m => SF Identity a b -> SF m a b
+generaliseSF = morphSF (pure . runIdentity)
+
+-- | Move between monads in an SF, while keeping time information.
+morphSF :: (Monad m2, Monad m1) => (forall c. m1 c -> m2 c) -> SF m1 a b -> SF m2 a b
+-- I think this would be as safe as morphS, but who knows
+morphSF nat = morphS (mapReaderT nat) 
 
 maxDelay :: Num a => a
 maxDelay = 30 * 10^(3 :: Int) -- 30ms in microseconds
@@ -70,8 +85,11 @@ flushSFThreadEvents SFThread{..} = map eventsMapperSFThread <$> flushTQueue sfEv
 
 -- | Run the passed signal function as an SFThread. Just like BrickThread, does
 -- not guarantee that the SFThread will be running for the entire continuation.
-withSFThread :: Semigroup u => SF (Event u) (s, Event e) -> (SFThread e u s -> IO a) -> IO a
-withSFThread sf k = do
+--
+-- Does not require a MonadUnliftIO, because the natural transformation needn't
+-- preserve state (it could be e.g. evaluating a StateT)
+withSFThread :: (MonadIO m, Semigroup u) => (forall x. m x -> IO x) -> SF m (Event u) (s, Event e) -> (SFThread e u s -> IO a) -> IO a
+withSFThread tf sf k = do
   userInputs <- newEmptyTMVarIO
   lastOutput <- newEmptyTMVarIO
   paused <- newEmptyTMVarIO
@@ -81,7 +99,7 @@ withSFThread sf k = do
   let
     sfThread = do
       getCurrentTime >>= atomically . writeTVar lastTime
-      reactimate
+      tf $ reactimate
         (pure NoEvent)
         sense
         actuate
@@ -90,11 +108,11 @@ withSFThread sf k = do
     sense block = do
       -- User input event, if given
       e <- do
-        us <- atomically (tryTakeTMVar userInputs)
+        us <- liftIO $ atomically (tryTakeTMVar userInputs)
 
         if isNothing us && block
           then do
-            withAsync (threadDelay maxDelay) $ \a -> do
+            liftIO . withAsync (threadDelay maxDelay) $ \a -> do
               atomically do
                 result <- newTVar NoEvent
                 orElse
@@ -108,16 +126,16 @@ withSFThread sf k = do
                 readTVar result
           else pure $ maybeToEvent us
 
-      t' <- getCurrentTime
-      dt <- atomically do
+      t' <- liftIO getCurrentTime
+      dt <- liftIO $ atomically do
         dt' <- realToFrac . diffUTCTime t' <$> readTVar lastTime
         writeTVar lastTime t'
         pure dt'
       pure (dt, Just e)
 
     actuate _ (s, e) = do
-      atomically $ writeTMVar lastOutput s
-      event (pure ()) (atomically . writeTQueue sfEvents) e
+      liftIO . atomically $ writeTMVar lastOutput s
+      event (pure ()) (liftIO . atomically . writeTQueue sfEvents) e
       pure False
 
   withAsync

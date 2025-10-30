@@ -60,7 +60,7 @@ runGame th = evalContT do
 
   lift $ withLoadingScreen th $ atomically $ replStatus rth >>= check . not . sameStatus Initialising
 
-  sfth <- ContT $ withSFThread simSF
+  sfth <- ContT $ withSFThread id $ generaliseSF simSF
   -- Assumption: sfth does not block indefinitely until input is given
   -- (ideally does not block at all on first output)
   s0 <- lift . atomically $ takeSFThread sfth
