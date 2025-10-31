@@ -103,6 +103,7 @@ executable spell-monad-exe
     build-depends:    base
                     , spell-monad
                     , async
+                    , bearriver
                     , mtl
                     , stm
                     , these

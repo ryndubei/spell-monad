@@ -17,6 +17,12 @@ import Control.Concurrent.Async
 import Control.Monad.Cont
 import Control.Monad.Trans
 import App.UI.LoadingScreen
+import Input
+import Control.Arrow
+import Data.These
+import Data.Semigroup
+import Data.Bifunctor (bimap)
+import FRP.Yampa
 
 -- TODO: exception hierarchy
 
@@ -77,9 +83,14 @@ runGame th = evalContT do
   brickToSfTh <- ContT . withAsync . forever $ atomically do
     aui <- takeBrickThread bth
     case aui of
-      GameInput ui -> sendSFThread sfth ui
+      GameInput ui -> sendSFThread sfth (This ui)
       TermStdin _ -> pure () -- TODO
   lift $ link brickToSfTh
+
+  replToSfTh <- ContT . withAsync . forever $ atomically do
+    req <- takeInterpretRequest rth
+    sendSFThread sfth (That (Last req))
+  lift $ link replToSfTh
 
   firstExit <- lift $ race (atomically $ waitBrickThread bth) (atomically $ waitSFThread sfth)
   lift $ case firstExit of
@@ -88,3 +99,8 @@ runGame th = evalContT do
     Left (Left e) -> throwIO (UIException e)
     Right (Just e) -> throwIO (SimException e)
     Right Nothing -> throwIO . SimException $ userError "Simulation SF terminated early"
+  where
+    simSF' :: SF (Event SFIn) (SimState, Event SimEvent)
+    simSF' = arr (event (NoEvent, NoEvent) (fromThese NoEvent NoEvent . bimap Event (Event . getLast))) >>> simSF
+
+type SFIn = These UserInput (Last InterpretRequest)

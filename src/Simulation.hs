@@ -3,12 +3,18 @@
 module Simulation (SimState(..), SimEvent(..), simSF, ObjectIdentifier(..)) where
 
 import FRP.Yampa
+import qualified FRP.BearRiver as BearRiver
 import Input
 import Simulation.Input
 import Control.Lens
 import GHC.Generics
 import Control.DeepSeq
 import Data.Sequence (Seq)
+import App.Thread.Repl
+import Spell (Spell, SpellF)
+import Control.Monad.Trans.Free (FreeT)
+import Control.Monad.Except
+import Control.Exception
 
 -- | Tells the UI thread how an object should be drawn.
 data ObjectIdentifier = Player deriving (Eq, Ord, Show, Generic)
@@ -37,8 +43,8 @@ instance Semigroup SimEvent where
 instance Monoid SimEvent where
   mempty = SimEvent { gameOver = False, spellOutput = mempty }
 
-simSF :: SF (Event UserInput) (SimState, Event SimEvent)
-simSF = proc u -> do
+simSF :: SF (Event UserInput, Event InterpretRequest) (SimState, Event SimEvent)
+simSF = proc (u, req) -> do
   simInput <- processInput -< u
 
   rec
