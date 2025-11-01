@@ -39,6 +39,8 @@ evalWhnf = hoistFreeT (tryEvaluate . runIdentity)
 -- moving the exceptions to the ExceptT layer.
 -- Recurses into higher-order effects, like 'Catch'.
 evalBranches :: FreeT (SpellF Identity) (ExceptT SomeException IO) a -> FreeT (SpellF (ExceptT SomeException IO)) (ExceptT SomeException IO) a
+-- May require 'unsafeInterleaveIO' later if any future effects take lazy values
+-- as arguments
 evalBranches = iterTM $
   -- Any exceptions in values passed as arguments fail in the \case,
   -- and therefore get caught by tryEvaluate
