@@ -70,7 +70,7 @@ sendSFThread SFThread{userInputs, lmapperSFThread} =
   -- This is a deliberate choice: it guarantees that the transaction is fast
   -- (just like a queue), while simplifying withSFThread's interface
   -- (otherwise it has to take 'Event (NonEmpty u)' instead of just 'Event u')
-  (\u -> tryTakeTMVar userInputs >>= maybe (writeTMVar userInputs u) (writeTMVar userInputs . (u <>))) . lmapperSFThread
+  (\u -> tryTakeTMVar userInputs >>= maybe (writeTMVar userInputs u) (writeTMVar userInputs . (<> u))) . lmapperSFThread
 
 -- | Retries until an output 's' is available from SFThread, then
 -- removes and returns 's'.
