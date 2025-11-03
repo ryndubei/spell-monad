@@ -75,7 +75,10 @@ library
                     , data-clist
                     , deepseq
                     , dunai
-                    , effectful
+                    -- I really dislike that effectful allows MonadCatch in pure code
+                    -- https://github.com/haskell-effectful/effectful/issues/337
+                    -- hence the preference for free monads
+                    -- , effectful
                     , free
                     , hint
                     , lens
