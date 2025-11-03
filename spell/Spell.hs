@@ -6,6 +6,7 @@ module Spell
   , SpellT(..)
   , SpellF(..)
   , hoistSpellT
+  , hoistSpellT'
   , generaliseSpell
   , firebolt
   , face
@@ -52,15 +53,19 @@ generaliseSpell :: Monad m => Spell a -> SpellT m a
 generaliseSpell = hoistSpellT (pure . runIdentity) . coerce
 
 hoistSpellT :: (Functor m, Monad n) => (forall x. m x -> n x) -> SpellT m a -> SpellT n a
-hoistSpellT f = SpellT . transFreeT (hoistSpellF f) . hoistFreeT f . unSpellT
+hoistSpellT f = SpellT . transFreeT (hoistSpellF (hoistSpellT f) f) . hoistFreeT f . unSpellT
 
-hoistSpellF :: (Functor m, Monad n) => (forall x. m x -> n x) -> SpellF m a -> SpellF n a
-hoistSpellF f = \case
+-- | Like 'hoistSpellT', but the 'Monad' and 'Functor' requirements are reversed.
+hoistSpellT' :: (Monad m, Functor n) => (forall x. m x -> n x) -> SpellT m a -> SpellT n a
+hoistSpellT' f = SpellT . hoistFreeT f . transFreeT (hoistSpellF (hoistSpellT' f) f) . unSpellT
+
+hoistSpellF :: Functor m => (forall x. SpellT m x -> SpellT n x) -> (forall x. m x -> n x) -> SpellF m a -> SpellF n a
+hoistSpellF g f = \case
   Firebolt next -> Firebolt (f next)
   Face a b next -> Face a b (f next)
   Catch expr h next ->
-    let expr' = f (fmap (hoistSpellT f) expr)
-        h' = f (fmap (hoistSpellT f) <$> h)
+    let expr' = f (fmap g expr)
+        h' = f (fmap g <$> h)
     in Catch expr' h' (f next)
   Throw e -> Throw (f e)
   PutChar c next -> PutChar c (f next)
