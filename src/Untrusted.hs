@@ -7,6 +7,9 @@ import Control.DeepSeq
 import Control.Exception
 import Control.Concurrent.Async
 import Control.Monad
+import Data.Int
+import System.Mem
+import Data.Foldable
 
 -- Deliberately not a newtype, so that it cannot be forced.
 data Untrusted a = Untrusted a deriving Functor
@@ -32,8 +35,17 @@ instance Exception SomeImpreciseException
 -- | Evaluate an Untrusted value on a separate thread. The Async will either
 -- return the caught imprecise exception or a fully-forced value according to
 -- the NFData instance. Obviously, the NFData instance must be trusted.
-withTrusted :: NFData a => Untrusted a -> (Async (Either SomeException a) -> IO b) -> IO b
-withTrusted (Untrusted a) = withAsync do
+withTrusted
+  :: NFData a
+  => Maybe Int64 -- ^ Allocation limit in bytes. Disabled if Nothing.
+  -> Untrusted a
+  -> (Async (Either SomeException a) -> IO b)
+  -> IO b
+withTrusted allocationLimit (Untrusted a) = withAsync do
   catch
-    (fmap Right . evaluate . mapException SomeImpreciseException $ force a)
-    (\(SomeImpreciseException e) -> pure $ Left e)
+    do
+      traverse_ (setAllocationCounter >=> const enableAllocationLimit) allocationLimit
+      catch
+        (fmap Right . evaluate . mapException SomeImpreciseException $ force a)
+        \(SomeImpreciseException e) -> pure $ Left e
+    \AllocationLimitExceeded -> pure $ Left (SomeException AllocationLimitExceeded)
