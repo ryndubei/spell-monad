@@ -67,7 +67,6 @@ data SpellF m next
   = Firebolt (m next)
   | Face !Double !Double (m next)
   | forall a e. Exception e => Catch (m (SpellT m a)) (m (e -> SpellT m a)) (m (a -> next))
-  -- ^ NOTE: (base's) async exceptions won't be caught
   | Throw (m SomeException) -- marked as lazy because forcing WHNF isn't necessarily sufficient
   -- ^ we can't just do throwSpell = liftF . throw because imprecise exceptions
   -- have different semantics from precise exceptions. Throwing precise
