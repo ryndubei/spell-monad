@@ -61,6 +61,7 @@ library
                     , Simulation
                     , Simulation.Input
                     , Spell.Eval
+                    , Untrusted
     default-extensions:
         Arrows
         TypeFamilies
