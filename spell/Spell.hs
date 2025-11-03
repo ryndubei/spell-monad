@@ -1,9 +1,11 @@
 {-# LANGUAGE NoImplicitPrelude #-}
 {-# LANGUAGE DerivingVia #-}
+{-# LANGUAGE LambdaCase #-}
 module Spell
   ( Spell(..)
   , SpellT(..)
   , SpellF(..)
+  , hoistSpellT
   , firebolt
   , face
   , putChar
@@ -22,41 +24,56 @@ import Control.Monad.IO.Class
 
 -- | The Spell monad transformer, allowing interleaved side effects. For use by
 -- compiled code. Should not be exposed to the user.
-newtype SpellT lazy m a = SpellT {
-  unSpellT :: FreeT (SpellF lazy m) m a
+newtype SpellT m a = SpellT {
+  unSpellT :: FreeT (SpellF m) m a
 } deriving (Functor, Applicative, Monad, MonadIO)
 
 -- For an unknown reason, the equivalent 'deriving newtype' fails with
 --
--- • Couldn't match type: FreeT (SpellF lazy m) m a
---               with: SpellT lazy m a
+-- • Couldn't match type: FreeT (SpellF m) m a
+--               with: SpellT m a
 --
 -- So the instance is just declared by hand.
-instance (Functor lazy, Monad m) => MonadFree (SpellF lazy m) (SpellT lazy m) where
+instance Monad m => MonadFree (SpellF m) (SpellT m) where
   {-# INLINE wrap #-}
   wrap = wrap . coerce
 
-instance Functor lazy => MonadTrans (SpellT lazy) where
+instance MonadTrans SpellT where
   {-# INLINE lift #-}
   lift = SpellT . lift
 
-newtype Spell a = Spell { unSpell :: FreeT (SpellF Identity Identity) Identity a }
+newtype Spell a = Spell { unSpell :: FreeT (SpellF Identity) Identity a }
   -- list of instances deliberately kept more sparse than SpellT
-  deriving (Functor, Applicative, Monad) via (SpellT Identity Identity)
+  deriving (Functor, Applicative, Monad) via (SpellT Identity)
 
-data SpellF lazy m next
+hoistSpellT :: (Functor m, Monad n) => (forall x. m x -> n x) -> SpellT m a -> SpellT n a
+hoistSpellT f = SpellT . transFreeT (hoistSpellF f) . hoistFreeT f . unSpellT
+
+hoistSpellF :: (Functor m, Monad n) => (forall x. m x -> n x) -> SpellF m a -> SpellF n a
+hoistSpellF f = \case
+  Firebolt next -> Firebolt (f next)
+  Face a b next -> Face a b (f next)
+  Catch expr h next ->
+    let expr' = f (fmap (hoistSpellT f) expr)
+        h' = f (fmap (hoistSpellT f) <$> h)
+    in Catch expr' h' (f next)
+  Throw e -> Throw (f e)
+  PutChar c next -> PutChar c (f next)
+  GetChar next -> GetChar (f next)
+
+data SpellF m next
   -- Anything that is to be _fully_ forced should be annotated with !,
-  -- anything else should be annotated with 'lazy'.
-  = Firebolt (lazy next)
-  | Face !Double !Double (lazy next)
-  | forall a e. Exception e => Catch (lazy (SpellT m lazy a)) (lazy (e -> SpellT m lazy a)) (lazy (a -> next))
+  -- anything else should be annotated with 'm'.
+  = Firebolt (m next)
+  | Face !Double !Double (m next)
+  | forall a e. Exception e => Catch (m (SpellT m a)) (m (e -> SpellT m a)) (m (a -> next))
   -- ^ NOTE: (base's) async exceptions won't be caught
-  | Throw (lazy SomeException) -- marked as 'lazy' because forcing WHNF isn't necessarily sufficient
+  | Throw (m SomeException) -- marked as lazy because forcing WHNF isn't necessarily sufficient
   -- ^ we can't just do throwSpell = liftF . throw because imprecise exceptions
   -- have different semantics from precise exceptions. Throwing precise
   -- exceptions has to be a dedicated side effect.
-  | PutChar !Char (lazy next)
-  | GetChar (lazy (Char -> next))
+  | PutChar !Char (m next)
+  | GetChar (m (Char -> next))
 
   -- (ThreadKilled should crash the level but not the whole game in case
   -- the player manages to somehow import it)
@@ -69,18 +86,18 @@ data SpellF lazy m next
   -- | forall b. UninterruptibleMask ((forall a. Spell a -> Spell a) -> Spell b) (b -> next)
   -- -- ^ NOTE: applies only to Spell's own "async" exceptions (e.g. OutOfSideEffects)
 
-deriving instance Functor lazy => Functor (SpellF lazy m)
+deriving instance Functor m => Functor (SpellF m)
 
 -- | 'liftF' for 'Spell'
-liftSpellF :: SpellF Identity Identity a -> Spell a
-liftSpellF = coerce . liftF @_ @(FreeT (SpellF Identity Identity) Identity)
+liftSpellF :: SpellF Identity a -> Spell a
+liftSpellF = coerce . liftF @_ @(FreeT (SpellF Identity) Identity)
 
 throwSpell :: Exception e => e -> Spell a
 throwSpell = liftSpellF . Throw . Identity . SomeException
 
 catch :: forall e a. Exception e => Spell a -> (e -> Spell a) -> Spell a
 catch s (h :: e -> Spell a) = 
-    let s' = coerce s :: Identity (SpellT Identity Identity a)
+    let s' = coerce s :: Identity (SpellT Identity a)
         h' = Identity $ fmap (SpellT . unSpell) h
      in Spell . FreeT . Identity . Free $ Catch s' h' (Identity pure)
 
