@@ -6,6 +6,7 @@ module Spell
   , SpellT(..)
   , SpellF(..)
   , hoistSpellT
+  , generaliseSpell
   , firebolt
   , face
   , putChar
@@ -45,6 +46,10 @@ instance MonadTrans SpellT where
 newtype Spell a = Spell { unSpell :: FreeT (SpellF Identity) Identity a }
   -- list of instances deliberately kept more sparse than SpellT
   deriving (Functor, Applicative, Monad) via (SpellT Identity)
+
+{-# INLINE generaliseSpell #-}
+generaliseSpell :: Monad m => Spell a -> SpellT m a
+generaliseSpell = hoistSpellT (pure . runIdentity) . coerce
 
 hoistSpellT :: (Functor m, Monad n) => (forall x. m x -> n x) -> SpellT m a -> SpellT n a
 hoistSpellT f = SpellT . transFreeT (hoistSpellF f) . hoistFreeT f . unSpellT
