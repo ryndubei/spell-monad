@@ -1,13 +1,13 @@
 {-# LANGUAGE NoImplicitPrelude #-}
 {-# LANGUAGE DerivingVia #-}
 {-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE QuantifiedConstraints #-}
-{-# LANGUAGE PartialTypeSignatures #-}
-{-# OPTIONS_GHC -Wno-partial-type-signatures #-}
 module Spell
   ( Spell(..)
   , SpellT(..)
   , SpellF(..)
+  , SomeSpellException(..)
+  , spellExceptionFromException
+  , spellExceptionToException
   , hoistSpellT
   , hoistSpellT'
   , generaliseSpell
@@ -21,11 +21,12 @@ module Spell
 
 import Control.Monad.Trans.Free
 import Prelude hiding (getChar, putChar)
-import Control.Exception (SomeException (..), Exception)
+import Control.Exception (SomeException(..), Exception(..))
 import Data.Functor.Identity
 import Control.Monad.Trans.Class
 import Data.Coerce
 import Control.Monad.IO.Class
+import Data.Typeable
 
 -- | The Spell monad transformer, allowing interleaved side effects. For use by
 -- compiled code. Should not be exposed to the user.
@@ -68,7 +69,7 @@ hoistSpellF g f = \case
   Face a b next -> Face a b (f next)
   Catch expr h next ->
     let expr' = f (fmap g expr)
-        h' = f (fmap g <$> h)
+        h' = f $ fmap (fmap (fmap g)) h
     in Catch expr' h' (f next)
   Throw e -> Throw (f e)
   PutChar c next -> PutChar c (f next)
@@ -79,8 +80,8 @@ data SpellF m next
   -- anything else should be annotated with 'm'.
   = Firebolt (m next)
   | Face !Double !Double (m next)
-  | forall a e. Exception e => Catch (m (SpellT m a)) (m (e -> SpellT m a)) (m (a -> next))
-  | Throw (m SomeException) -- marked as lazy because forcing WHNF isn't necessarily sufficient
+  | forall a. Catch (m (SpellT m a)) (m (SomeSpellException -> Maybe (SpellT m a))) (m (a -> next))
+  | Throw (m SomeSpellException) -- marked as lazy because forcing WHNF isn't necessarily sufficient
   -- ^ we can't just do throwSpell = liftF . throw because imprecise exceptions
   -- have different semantics from precise exceptions. Throwing precise
   -- exceptions has to be a dedicated side effect.
@@ -98,6 +99,23 @@ data SpellF m next
   -- | forall b. UninterruptibleMask ((forall a. Spell a -> Spell a) -> Spell b) (b -> next)
   -- -- ^ NOTE: applies only to Spell's own "async" exceptions (e.g. OutOfSideEffects)
 
+data SomeSpellException = forall e. Exception e => SomeSpellException e
+
+instance Show SomeSpellException where
+  show (SomeSpellException e) = show e
+
+instance Exception SomeSpellException where
+  toException = spellExceptionToException
+  fromException = spellExceptionFromException
+
+spellExceptionToException :: Exception e => e -> SomeException
+spellExceptionToException = toException . SomeSpellException
+
+spellExceptionFromException :: Exception e => SomeException -> Maybe e
+spellExceptionFromException x = do
+  SomeSpellException a <- fromException x
+  cast a
+
 deriving instance Functor m => Functor (SpellF m)
 
 -- | 'liftF' for 'Spell'
@@ -105,12 +123,12 @@ liftSpellF :: SpellF Identity a -> Spell a
 liftSpellF = coerce . liftF @_ @(FreeT (SpellF Identity) Identity)
 
 throwSpell :: Exception e => e -> Spell a
-throwSpell = liftSpellF . Throw . Identity . SomeException
+throwSpell = liftSpellF . Throw . Identity . SomeSpellException
 
 catch :: forall e a. Exception e => Spell a -> (e -> Spell a) -> Spell a
 catch s (h :: e -> Spell a) = 
     let s' = coerce s :: Identity (SpellT Identity a)
-        h' = Identity $ fmap (SpellT . unSpell) h
+        h' = Identity $ \(SomeSpellException e) -> generaliseSpell . h <$> cast e
      in Spell . FreeT . Identity . Free $ Catch s' h' (Identity pure)
 
 firebolt :: Spell ()
