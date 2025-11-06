@@ -1,68 +1,117 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE BlockArguments #-}
-module Spell.Eval (evaluateSpell) where
+{-# LANGUAGE PartialTypeSignatures #-}
+module Spell.Eval () where
 
-import Spell (Spell (..), SpellT(..), unSpell, SpellF(..))
-import Control.Monad.Trans.Free
+import Spell (Spell (..), SpellT(..), SpellF(..), generaliseSpell)
 import Control.Exception
-import Control.Monad.Trans.Except
 import Data.Functor.Identity
-import Data.Coerce
-import Control.Monad.Trans.Class
-import Data.Bifunctor
+import Untrusted
+import Control.Monad.Trans.Free
+import Control.DeepSeq
+import Data.Some
+import Data.Functor.Product
 import Control.Monad
+import Control.Monad.Trans.Class
+import Data.Functor
+import Data.GADT.DeepSeq
+import Control.Lens
+import Data.Functor.Compose
+import Control.Monad.Trans.Reader
 
--- Guarantees that any exceptions in _strict_ values passed to SpellF effects
--- (and in SpellF itself) are caught.
+untrust :: Spell a -> SpellT Untrusted a
+untrust = generaliseSpell
+
+-- | Turn a particular unnatural transformation into a natural transformation.
 --
--- TODO: figure out whether all values passed with Spell effects will be strict
--- or themselves 'Spell a' values for some 'a'. It sounds plausible, and would
--- be a useful property if true.
+-- We can do this because all non-NFData arguments in SpellF are wrapped with 'm'.
+evalSpell :: forall n a. Monad n => (forall x. NFData x => Untrusted x -> n x) -> SpellT Untrusted a -> SpellT n (Untrusted a)
+evalSpell f (SpellT (FreeT m)) = do
+  -- TODO: express in terms of untrustedCommSome
+
+  let isPure = fmap (\case Pure _ -> True; Free _ -> False) m
+  isPure' <- lift $ f isPure
+
+  if isPure'
+    then -- Therefore we can collapse the action.
+         -- (would not work with an arbitrary monad, this works with
+         -- Untrusted because it will always compute the same result
+         -- when successful)
+      pure $ fmap (\case Pure a -> a; _ -> no) m
+    else do
+      let m' = fmap (\case Free s -> s; _ -> no) m
+          mtagged = m' <&> toSpellTag
+      tag <- lift $ pullOut mtagged
+      undefined
+  where
+    no = error "impossible"
+
+    pullOut :: forall next. Untrusted (Some (Product Identity (SpellTag Untrusted next))) -> n (SpellF n (Untrusted next))
+    pullOut u0 = do
+      let u1 = untrustedCommSome u0
+      withSome u1 \(Compose u2) -> do
+        let u3 = fmap (\(Pair (Identity a) b) -> (a,b)) u2
+            uargs = fmap fst u3
+            utag = fmap snd u3
+        tag <- f utag
+        trust tag uargs
+
+    trust :: forall next z. SpellTag Untrusted next z -> Untrusted z -> n (SpellF n (Untrusted next))
+    trust TFirebolt u = pure $ Firebolt (pure (join u))
+    trust TFace u = do
+      a <- f $ fmap (view _1) u
+      b <- f $ fmap (view _2) u
+      let next = u >>= view _3
+      pure $ Face a b (pure next)
+    trust TCatch u = do
+      let expr = evalSpell f . join . lift $ u >>= view _1
+          h e = evalSpell f . join . lift . fmap ($ e) $ u >>= view _2
+          next = (<*>) (u >>= view _3)
+      pure $ Catch (pure expr) (pure h) (pure next)
+    trust TThrow e = do
+      pure $ Throw undefined
+    trust TPutChar u = undefined
+
+data UntrustedException = UntrustedException
+  { baseException :: Untrusted SomeException
+  , lazyShow :: String
+  }
+
+instance Show UntrustedException where
+  show UntrustedException{lazyShow} = undefined
+
+-- | The arguments of each constructor of SpellF on the type level.
 --
--- Note: does not interpret anything, including neither 'catch' nor 'throwSpell'
-evaluateSpell :: forall a. Spell a -> SpellT (ExceptT SomeException IO) a
-evaluateSpell = SpellT . evalBranches . evalWhnf . unSpell
+-- TODO: remove this boilerplate
+data SpellTag m next a where
+  TFirebolt :: SpellTag m next (m next)
+  TFace :: SpellTag m next (Double, Double, m next)
+  TCatch :: Exception e => SpellTag m next (m (SpellT m a), m (e -> SpellT m a), m (a -> next))
+  TThrow :: SpellTag m next (m SomeException)
+  TPutChar :: SpellTag m next (Char, m next)
+  TGetChar :: SpellTag m next (m (Char -> next))
 
--- | Ensures the FreeT itself does not throw.
-evalWhnf :: FreeT (SpellF m) Identity a -> FreeT (SpellF m) (ExceptT SomeException IO) a 
--- foldFreeT evaluates at every iteration:
--- 1. the side-effect returning the FreeF (by performing it)
--- 2. the FreeF to WHNF (to decide whether it's Pure/Free)
--- Everything else depends on the strictness of its arguments.
--- As the monad of 's' is Identity, which is a newtype, and FreeT is also a
--- newtype, this just evaluates the entire thing to WHNF.
--- So, all we need to do to stay ahead of foldFreeT is calling tryEvaluate
--- before letting it proceed.
-evalWhnf = hoistFreeT (tryEvaluate . runIdentity)
+-- This isomorphism is explicitly specified to ensure the above is in sync with SpellF
+toSpellTag :: SpellF m next -> Some (Product Identity (SpellTag m next))
+toSpellTag (Firebolt next) = Some $ Pair (Identity next) TFirebolt
+toSpellTag (Face a b next) = Some $ Pair (Identity (a,b,next)) TFace
+toSpellTag (Catch expr h next) = Some $ Pair (Identity (expr,h,next)) TCatch
+toSpellTag (Throw e) = Some $ Pair (Identity e) TThrow
+toSpellTag (PutChar c next) = Some $ Pair (Identity (c, next)) TPutChar
+toSpellTag (GetChar next) = Some $ Pair (Identity next) TGetChar
 
--- | Ensures the (strict) arguments passed to Spell effects do not throw by
--- moving the exceptions to the ExceptT layer.
--- Recurses into higher-order effects, like 'Catch'.
-evalBranches :: FreeT (SpellF Identity) (ExceptT SomeException IO) a -> FreeT (SpellF (ExceptT SomeException IO)) (ExceptT SomeException IO) a
--- May require 'unsafeInterleaveIO' later if any future effects take lazy values
--- as arguments
-evalBranches = iterTM $
-  -- Any exceptions in values passed as arguments fail in the \case,
-  -- and therefore get caught by tryEvaluate
-  join . lift . tryEvaluate . mapException UncaughtSpellException . \case
-    Firebolt next -> liftF (Firebolt ()) >> next
-    Face (!a, !b) next -> liftF (Face (a,b) ()) >> next
-    Catch s h next ->
-      let s' = evaluateSpell (coerce s)
-          h' = fmap (evaluateSpell . coerce) h
-       in liftF (Catch s' h' id) >>= next
-    Throw !ex -> liftF (Throw ex)
-    PutChar !c next -> liftF (PutChar c ()) >> next 
-    GetChar next -> liftF (GetChar id) >>= next
+fromSpellTag :: SpellTag m next a -> a -> SpellF m next
+fromSpellTag TFirebolt a = Firebolt a
+fromSpellTag TFace (a,b,next) = Face a b next
+fromSpellTag TCatch (expr,h,next) = Catch expr h next
+fromSpellTag TThrow e = Throw e
+fromSpellTag TGetChar next = GetChar next
+fromSpellTag TPutChar (c, next) = PutChar c next
 
-tryEvaluate :: a -> ExceptT SomeException IO a
-tryEvaluate
-  = ExceptT
-  . fmap (first coerce)
-  . try @UncaughtSpellException
-  . evaluate
-  . mapException UncaughtSpellException
-
-newtype UncaughtSpellException = UncaughtSpellException SomeException deriving Show
-
-instance Exception UncaughtSpellException
+instance NFData (SpellTag m a b) where
+  rnf TFirebolt = ()
+  rnf TFace = ()
+  rnf TCatch = ()
+  rnf TThrow = ()
+  rnf TGetChar = ()
+  rnf TPutChar = ()

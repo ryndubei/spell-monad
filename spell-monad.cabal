@@ -75,6 +75,7 @@ library
                     , containers
                     , data-clist
                     , deepseq
+                    , dependent-map
                     , dunai
                     , effectful
                     , free
@@ -83,7 +84,9 @@ library
                     , mtl
                     , parallel
                     , profunctors
+                    , prim-uniq
                     , transformers
+                    , some
                     , stm
                     , text
                     , time

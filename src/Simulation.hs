@@ -15,6 +15,7 @@ import Spell (Spell, SpellF)
 import Control.Monad.Trans.Free (FreeT)
 import Control.Monad.Except
 import Control.Exception
+import Data.Some.Newtype (Some)
 
 -- | Tells the UI thread how an object should be drawn.
 data ObjectIdentifier = Player deriving (Eq, Ord, Show, Generic)

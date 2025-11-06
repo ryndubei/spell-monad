@@ -17,7 +17,6 @@ import Control.Concurrent.Async
 import Control.Monad.Cont
 import Control.Monad.Trans
 import App.UI.LoadingScreen
-import Input
 import Control.Arrow
 import Data.These
 import Data.Semigroup
@@ -100,7 +99,4 @@ runGame th = evalContT do
     Right (Just e) -> throwIO (SimException e)
     Right Nothing -> throwIO . SimException $ userError "Simulation SF terminated early"
   where
-    simSF' :: SF (Event SFIn) (SimState, Event SimEvent)
     simSF' = arr (event (NoEvent, NoEvent) (fromThese NoEvent NoEvent . bimap Event (Event . getLast))) >>> simSF
-
-type SFIn = These UserInput (Last InterpretRequest)

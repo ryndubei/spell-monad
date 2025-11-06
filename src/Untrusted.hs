@@ -1,7 +1,7 @@
 {-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
 {-# HLINT ignore "Use newtype instead of data" #-}
 {-# LANGUAGE BlockArguments #-}
-module Untrusted (Untrusted, toUntrusted, withTrusted) where
+module Untrusted (Untrusted, toUntrusted, withTrusted, untrustedCommSome) where
 
 import Control.DeepSeq
 import Control.Exception
@@ -10,6 +10,8 @@ import Control.Monad
 import Data.Int
 import System.Mem
 import Data.Foldable
+import Data.Some.Newtype
+import Data.Functor.Compose
 
 -- Deliberately not a newtype, so that it cannot be forced.
 data Untrusted a = Untrusted a deriving Functor
@@ -49,3 +51,9 @@ withTrusted allocationLimit (Untrusted a) = withAsync do
         (fmap Right . evaluate . mapException SomeImpreciseException $ force a)
         \(SomeImpreciseException e) -> pure $ Left e
     \AllocationLimitExceeded -> pure $ Left (SomeException AllocationLimitExceeded)
+
+-- | Hidden types are preserved.
+untrustedCommSome :: Untrusted (Some f) -> Some (Compose Untrusted f)
+-- since Some is a newtype, this pattern match is lazy on the contents,
+-- so untrustedCommSome a `seq` () = ()
+untrustedCommSome (Untrusted (Some a)) = Some (Compose (Untrusted a))

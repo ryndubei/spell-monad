@@ -2,11 +2,13 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE BlockArguments #-}
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE ImpredicativeTypes #-}
 
 module App.Thread.Repl
   ( ReplThread
   , ReplStatus(..)
-  , InterpretRequest(..)
+  , InterpretRequest
+  , withSpell
   , withReplThread
   , submitRepl
   , replStatus
@@ -18,9 +20,8 @@ module App.Thread.Repl
 
 import Control.Concurrent.STM
 import Control.Exception
-import Spell (Spell)
+import Spell (Spell, SpellT)
 import Language.Haskell.Interpreter
-import Type.Reflection
 import Control.Concurrent.Async
 import Control.Monad.Trans.Maybe
 import Data.Void
@@ -28,10 +29,42 @@ import Control.Monad
 import Data.Foldable
 import Control.Monad.Fix
 import Data.Bifunctor
+import Effectful
+import Effectful.Dispatch.Static
+import Data.Some.Newtype
+import Data.Dependent.Map (DMap)
+import Data.Unique.Tag
+import GHC.Exts
+import qualified Data.Dependent.Map as DMap
+import Data.Functor.Identity
+
+-- | Effect for safely handling InterpretRequests
+data HandleSpell :: Effect
+
+-- | 'withSpell' is non-deterministic since it will behave differently if
+-- InterpretRequest is cancelled. Therefore WithSideEffects.
+type instance DispatchOf HandleSpell = Static WithSideEffects
+
+newtype instance StaticRep HandleSpell = HandleSpell (TVar (DMap (Tag RealWorld) Spell))
+
+-- | Guarantees:
+--
+-- 1. 'Strict' values - anything that is expected to be evaluated immediately -
+-- will be forced and free of exceptions for convenience.
+-- 2. the SpellT will be cut short with a "Throw UserInterrupt" at the point
+-- where the computation is interrupted.
+withSpell :: HandleSpell :> es => InterpretRequest -> (forall a. SpellT (Eff es) a -> Eff es a) -> Eff es ()
+withSpell InterpretRequest{submitResponseHere, toInterpret} nat = undefined
+
+isInterpretRequestValid :: HandleSpell :> es => InterpretRequest -> Eff es Bool
+isInterpretRequestValid = undefined
+
+-- | Compute an untrusted value on a separate thread.
+-- offload :: HandleSpell :> es => Untrusted a -> (a -> )
 
 -- | A request to carry out some side effects in the game.
 data InterpretRequest =
-  forall a. Typeable a => InterpretRequest
+  forall a. InterpretRequest
     { submitResponseHere :: TMVar (Either SomeException a -> STM ())
       -- ^ Exceptions in 'a' are expected and allowed: represents a
       -- lazy bottom value. SomeException when the computation terminated due
@@ -43,7 +76,7 @@ data InterpretRequest =
     }
 
 -- | Guarantees that the InterpretRequest is invalidated when the continuation ends.
-withInterpretRequest :: Typeable a => Spell a -> ((InterpretRequest, TMVar (Either SomeException a)) -> IO b) -> IO b
+withInterpretRequest :: Spell a -> ((InterpretRequest, TMVar (Either SomeException a)) -> IO b) -> IO b
 withInterpretRequest toInterpret =
   bracket
     do
