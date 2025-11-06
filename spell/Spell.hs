@@ -69,7 +69,7 @@ hoistSpellF g f = \case
   Face a b next -> Face a b (f next)
   Catch expr h next ->
     let expr' = f (fmap g expr)
-        h' = f $ fmap (fmap (fmap g)) h
+        h' = f . fmap (fmap (f . fmap (fmap g))) $ h
     in Catch expr' h' (f next)
   Throw e -> Throw (f e)
   PutChar c next -> PutChar c (f next)
@@ -80,7 +80,7 @@ data SpellF m next
   -- anything else should be annotated with 'm'.
   = Firebolt (m next)
   | Face !Double !Double (m next)
-  | forall a. Catch (m (SpellT m a)) (m (SomeSpellException -> Maybe (SpellT m a))) (m (a -> next))
+  | forall a. Catch (m (SpellT m a)) (m (SomeSpellException -> m (Maybe (SpellT m a)))) (m (a -> next))
   | Throw (m SomeSpellException) -- marked as lazy because forcing WHNF isn't necessarily sufficient
   -- ^ we can't just do throwSpell = liftF . throw because imprecise exceptions
   -- have different semantics from precise exceptions. Throwing precise
@@ -126,9 +126,9 @@ throwSpell :: Exception e => e -> Spell a
 throwSpell = liftSpellF . Throw . Identity . SomeSpellException
 
 catch :: forall e a. Exception e => Spell a -> (e -> Spell a) -> Spell a
-catch s (h :: e -> Spell a) = 
+catch s (h :: e -> Spell a) =
     let s' = coerce s :: Identity (SpellT Identity a)
-        h' = Identity $ \(SomeSpellException e) -> generaliseSpell . h <$> cast e
+        h' = Identity $ \(SomeSpellException e) -> pure (generaliseSpell . h <$> cast e)
      in Spell . FreeT . Identity . Free $ Catch s' h' (Identity pure)
 
 firebolt :: Spell ()
