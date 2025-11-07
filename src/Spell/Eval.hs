@@ -86,6 +86,7 @@ evalSpell uCommSome f (SpellT (FreeT m)) = do
             pure $ Face a b (pure next)
           TThrow -> do
             let e = join u
+            -- TODO: type parameter for exception type in SpellF
             pure . Throw . pure . SomeSpellException $ WrappedException e
           -- Any catches are modified to handle both the original exception type and
           -- the wrapped exceptions identically.
