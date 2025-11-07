@@ -17,14 +17,14 @@ class DSum s where
   toDSum :: s -> Some (Product Identity (Tag s))
   fromDSum :: Tag s args -> args -> s  
 
-instance DSum (SpellF m next) where
-  data Tag (SpellF m next) a where 
-    TFirebolt :: Tag (SpellF m next) (m next)
-    TFace :: Tag (SpellF m next) (Double, Double, m next)
-    TCatch :: Tag (SpellF m next) (m (SpellT m a), m (SomeSpellException -> m (Maybe (SpellT m a))), m (a -> next))
-    TThrow :: Tag (SpellF m next) (m SomeSpellException)
-    TPutChar :: Tag (SpellF m next) (Char, m next)
-    TGetChar :: Tag (SpellF m next) (m (Char -> next))
+instance DSum (SpellF e m next) where
+  data Tag (SpellF e m next) a where 
+    TFirebolt :: Tag (SpellF e m next) (m next)
+    TFace :: Tag (SpellF e m next) (Double, Double, m next)
+    TCatch :: Tag (SpellF e m next) (m (SpellT e m a), m (e -> m (Maybe (SpellT e m a))), m (a -> next))
+    TThrow :: Tag (SpellF e m next) (m e)
+    TPutChar :: Tag (SpellF e m next) (Char, m next)
+    TGetChar :: Tag (SpellF e m next) (m (Char -> next))
   toDSum (Firebolt next) = Some $ Pair (Identity next) TFirebolt
   toDSum (Face a b next) = Some $ Pair (Identity (a,b,next)) TFace
   toDSum (Catch expr h next) = Some $ Pair (Identity (expr,h,next)) TCatch
@@ -38,7 +38,7 @@ instance DSum (SpellF m next) where
   fromDSum TGetChar next = GetChar next
   fromDSum TPutChar (c, next) = PutChar c next
 
-instance NFData (Tag (SpellF m next) a) where
+instance NFData (Tag (SpellF e m next) a) where
   rnf TFirebolt = ()
   rnf TFace = ()
   rnf TCatch = ()

@@ -3,8 +3,7 @@
 {-# LANGUAGE PartialTypeSignatures #-}
 module Spell.Eval (evalSpell) where
 
-import Spell (SpellT(..), SpellF(..), SomeSpellException(..))
-import Control.Exception
+import Spell (SpellT(..), SpellF(..), mapSpellException, mapSpellFException)
 import Data.Functor.Identity
 import Control.Monad.Trans.Free
 import Control.DeepSeq
@@ -17,16 +16,14 @@ import Data.Functor.Compose
 import Data.Kind
 import Type.Reflection
 import DependentSums
-import Control.Applicative
-import Control.Monad.Trans.Maybe
 
 -- | Turn a particular unnatural transformation into a natural transformation.
 evalSpell
-  :: forall u n a. (Monad u, Monad n, Typeable u)
+  :: forall u n a e. (Monad u, Monad n, Typeable u)
   => (forall k (f :: k -> Type). u (Some f) -> Some (Compose u f)) -- ^ u must preserve hidden types
   -> (forall x. NFData x => u x -> n x)
-  -> SpellT u a
-  -> SpellT n (u a)
+  -> SpellT e u a
+  -> SpellT (u e) n (u a)
 evalSpell uCommSome f (SpellT (FreeT m)) = do
   pureOrFree <- lift . pullEither' $ fmap (\case Pure a -> Left a; Free a -> Right a) m
   case pureOrFree of
@@ -67,10 +64,10 @@ evalSpell uCommSome f (SpellT (FreeT m)) = do
           TJust -> pure $ Just uargs
           TNothing -> pure Nothing
 
-    pullSpellF' :: forall next. u (SpellF u next) -> n (SpellF n (u next))
-    pullSpellF' = pullSpellF . fmap toDSum
+    pullSpellF' :: forall next. u (SpellF e u next) -> n (SpellF (u e) n (u next))
+    pullSpellF' = pullSpellF . fmap (toDSum . mapSpellFException (pure . pure) id)
 
-    pullSpellF :: forall next. u (Some (Product Identity (Tag (SpellF u next)))) -> n (SpellF n (u next))
+    pullSpellF :: forall next. u (Some (Product Identity (Tag (SpellF (u e) u next)))) -> n (SpellF (u e) n (u next))
     pullSpellF u0 = do
       let u1 = uCommSome u0
       withSome u1 \(Compose u2) -> do
@@ -85,17 +82,11 @@ evalSpell uCommSome f (SpellT (FreeT m)) = do
             let next = u >>= view _3
             pure $ Face a b (pure next)
           TThrow -> do
-            let e = join u
-            -- TODO: type parameter for exception type in SpellF
-            pure . Throw . pure . SomeSpellException $ WrappedException e
-          -- Any catches are modified to handle both the original exception type and
-          -- the wrapped exceptions identically.
+            let e = join $ join u
+            pure . Throw $ pure e
           TCatch -> do
-            let expr = evalSpell uCommSome f . join . lift $ u >>= view _1
-                h1 e = fmap (fmap (evalSpell uCommSome f . join . lift)) . pullMaybe' . join . (<*> wrappedException e) $ u >>= view _2
-                h2 e = fmap (fmap (evalSpell uCommSome f . join . lift)) . pullMaybe' $ u >>= view _2 >>= ($ e)
-                h e = runMaybeT $ join (hoistMaybe (fmap (fmap MaybeT h1) (fromException $ toException e)))
-                              <|> join (hoistMaybe (fmap (fmap MaybeT h2) (fromException $ toException e)))
+            let expr = mapSpellException (pure . join) (pure . pure) . evalSpell uCommSome f . join . lift $ u >>= view _1
+                h e = fmap (fmap (mapSpellException (pure . join) (pure . pure) . evalSpell uCommSome f . join . lift)) . pullMaybe' . join . (<*> pure e) $ u >>= view _2
                 next = (<*>) (u >>= view _3)
             pure $ Catch (pure expr) (pure h) (pure next)
           TPutChar -> do
@@ -105,11 +96,3 @@ evalSpell uCommSome f (SpellT (FreeT m)) = do
           TGetChar -> do
             let next = (<*>) (join u)
             pure $ GetChar (pure $ next . pure)
-
--- | From the perspective of user code, this should always be the exception that has been wrapped.
-newtype WrappedException u = WrappedException { wrappedException :: u SomeSpellException }
-
-instance Show (WrappedException u) where
-  show _ = "wrapped exception"
-
-instance Typeable u => Exception (WrappedException u)
