@@ -14,12 +14,11 @@ import Control.Monad.Trans.Class
 import Control.Lens
 import Data.Functor.Compose
 import Data.Kind
-import Type.Reflection
 import DependentSums
 
 -- | Turn a particular unnatural transformation into a natural transformation.
 evalSpell
-  :: forall u n a e. (Monad u, Monad n, Typeable u)
+  :: forall u n a e. (Monad u, Monad n)
   => (forall k (f :: k -> Type). u (Some f) -> Some (Compose u f)) -- ^ u must preserve hidden types
   -> (forall x. NFData x => u x -> n x)
   -> SpellT e u a
