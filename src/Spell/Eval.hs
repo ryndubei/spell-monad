@@ -1,9 +1,8 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE BlockArguments #-}
-{-# LANGUAGE PartialTypeSignatures #-}
 module Spell.Eval (evalSpell) where
 
-import Spell (SpellT(..), SpellF(..), mapSpellException, mapSpellFException)
+import Spell (SpellT(..), SpellF(..), mapSpellException, mapSpellFException, Spell(..), generaliseSpell, SomeSpellException(..))
 import Data.Functor.Identity
 import Control.Monad.Trans.Free
 import Control.DeepSeq
@@ -15,6 +14,36 @@ import Control.Lens
 import Data.Functor.Compose
 import Data.Kind
 import DependentSums
+import Untrusted
+import Control.Exception
+import Control.Monad.Trans.Except
+import Data.Coerce
+import Control.Monad.Trans.Reader
+import Control.Concurrent.STM
+import Control.Monad.IO.Class
+import UnliftIO (MonadUnliftIO)
+
+newtype EvalEnv u n = EvalEnv
+  { eval :: forall x. NFData x => u x -> n (Either SomeException x)
+  }
+
+newtype EvalT u n a = EvalT (ReaderT (EvalEnv u n) n a)
+  deriving (Functor, Applicative, Monad, MonadIO, MonadUnliftIO)
+
+tryEval :: NFData x => u x -> EvalT u n (n (Maybe (Either SomeException x)))
+tryEval = undefined
+
+-- | Evaluate using EvalT. _Failed evaluations are silently truncated with Throw_.
+evalSpell'
+  :: forall u n a. (Monad u, Monad n)
+  => u (Spell a)
+  -> SpellT (u SomeException) (EvalT u n) (u a)
+evalSpell' u = undefined
+  where
+    u' :: SpellT SomeException u a
+    u' = join . lift $ fmap (mapSpellException (\(SomeSpellException e) -> pure $ SomeException e) (\(SomeException e) -> pure $ SomeSpellException e) . generaliseSpell) u
+
+    u'' = undefined
 
 -- | Turn a particular unnatural transformation into a natural transformation.
 evalSpell

@@ -91,6 +91,7 @@ library
                     , stm
                     , text
                     , time
+                    , unliftio
                     , vector
                     , vty
                     , vty-crossplatform
