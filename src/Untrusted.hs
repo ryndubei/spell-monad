@@ -12,6 +12,8 @@ import System.Mem
 import Data.Foldable
 import Data.Some.Newtype
 import Data.Functor.Compose
+import Foreign.StablePtr
+import Control.Concurrent
 
 -- Deliberately not a newtype, so that it cannot be forced.
 data Untrusted a = Untrusted a deriving Functor
@@ -46,10 +48,20 @@ withTrusted
 withTrusted allocationLimit (Untrusted a) = withAsync do
   catch
     do
-      traverse_ (setAllocationCounter >=> const enableAllocationLimit) allocationLimit
-      catch
-        (fmap Right . evaluate . mapException SomeImpreciseException $ force a)
-        \(SomeImpreciseException e) -> pure $ Left e
+      -- https://well-typed.com/blog/2024/01/when-blocked-indefinitely-is-not-indefinite/
+      -- https://gitlab.haskell.org/ghc/ghc/-/issues/10793
+      -- This thread (and therefore any thread blocked on it) should never
+      -- receive a NonTermination/BlockedIndefinitelyOnSTM/etc exception from
+      -- the RTS because we are evaluating untrusted user input here, which
+      -- could be non-terminating. Instead, the Async will have to be killed by hand.
+      bracket
+        (newStablePtr =<< myThreadId)
+        freeStablePtr
+        \_ -> do
+          traverse_ (setAllocationCounter >=> const enableAllocationLimit) allocationLimit
+          catch
+            (fmap Right . evaluate . mapException SomeImpreciseException $ force a)
+            \(SomeImpreciseException e) -> pure $ Left e
     \AllocationLimitExceeded -> pure $ Left (SomeException AllocationLimitExceeded)
 
 -- | Hidden types are preserved.
