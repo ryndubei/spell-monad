@@ -20,7 +20,6 @@ import Control.Concurrent.STM
 import Control.Exception
 import Spell (Spell)
 import Language.Haskell.Interpreter
-import Type.Reflection
 import Control.Concurrent.Async
 import Control.Monad.Trans.Maybe
 import Data.Void
@@ -31,7 +30,7 @@ import Data.Bifunctor
 
 -- | A request to carry out some side effects in the game.
 data InterpretRequest =
-  forall a. Typeable a => InterpretRequest
+  forall a. InterpretRequest
     { submitResponseHere :: TMVar (Either SomeException a -> STM ())
       -- ^ Exceptions in 'a' are expected and allowed: represents a
       -- lazy bottom value. SomeException when the computation terminated due
@@ -43,7 +42,7 @@ data InterpretRequest =
     }
 
 -- | Guarantees that the InterpretRequest is invalidated when the continuation ends.
-withInterpretRequest :: Typeable a => Spell a -> ((InterpretRequest, TMVar (Either SomeException a)) -> IO b) -> IO b
+withInterpretRequest :: Spell a -> ((InterpretRequest, TMVar (Either SomeException a)) -> IO b) -> IO b
 withInterpretRequest toInterpret =
   bracket
     do
