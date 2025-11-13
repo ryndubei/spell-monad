@@ -74,7 +74,7 @@ data EvalHandle n x = EvalHandle
 newtype EvalEnv u n = EvalEnv { startEval :: forall x. NFData x => u x -> n (EvalHandle n x) }
 
 -- | Some delayed evaluation strategy of 'u' in 'n'.
-newtype EvalT u n a = EvalT { runEvalT :: ReaderT (EvalEnv u n) n a }
+newtype EvalT u n a = EvalT (ReaderT (EvalEnv u n) n a)
   deriving (Functor, Applicative, Monad, MonadIO)
 
 instance MonadTrans (EvalT u) where
