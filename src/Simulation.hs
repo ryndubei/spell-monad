@@ -3,7 +3,6 @@
 module Simulation (SimState(..), SimEvent(..), simSF, ObjectIdentifier(..)) where
 
 import FRP.Yampa
-import qualified FRP.BearRiver as BearRiver
 import Input
 import Simulation.Input
 import Control.Lens
@@ -11,11 +10,6 @@ import GHC.Generics
 import Control.DeepSeq
 import Data.Sequence (Seq)
 import App.Thread.Repl
-import Spell (Spell, SpellF)
-import Control.Monad.Trans.Free (FreeT)
-import Control.Monad.Except
-import Control.Exception
-import Data.Some.Newtype (Some)
 
 -- | Tells the UI thread how an object should be drawn.
 data ObjectIdentifier = Player deriving (Eq, Ord, Show, Generic)
