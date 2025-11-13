@@ -21,7 +21,7 @@ instance DSum (SpellF e m next) where
   data Tag (SpellF e m next) a where 
     TFirebolt :: Tag (SpellF e m next) (m next)
     TFace :: Tag (SpellF e m next) (Double, Double, m next)
-    TCatch :: Tag (SpellF e m next) (m (SpellT e m a), m (e -> m (Maybe (SpellT e m a))), m (a -> next))
+    TCatch :: Tag (SpellF e m next) (m (SpellT e m a), m (e -> SpellT e m (Maybe (SpellT e m a))), m (a -> next))
     TThrow :: Tag (SpellF e m next) (m e)
     TPutChar :: Tag (SpellF e m next) (Char, m next)
     TGetChar :: Tag (SpellF e m next) (m (Char -> next))

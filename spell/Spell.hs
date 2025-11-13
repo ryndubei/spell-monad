@@ -1,6 +1,7 @@
 {-# LANGUAGE NoImplicitPrelude #-}
 {-# LANGUAGE DerivingVia #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE BlockArguments #-}
 module Spell
   ( Spell(..)
   , SpellT(..)
@@ -19,6 +20,8 @@ module Spell
   , getChar
   , catch
   , throwSpell
+  , joinSpellT
+  , spellTCollapseExceptT
   ) where
 
 import Control.Monad.Trans.Free
@@ -31,6 +34,8 @@ import Control.Monad.IO.Class
 import Data.Typeable
 import Data.Kind
 import Control.Monad
+import Control.Category ((>>>))
+import Control.Monad.Trans.Except
 
 -- | The Spell monad transformer, allowing interleaved side effects. For use by
 -- compiled code. Should not be exposed to the user.
@@ -73,11 +78,32 @@ hoistSpellF g f = \case
   Face a b next -> Face a b (f next)
   Catch expr h next ->
     let expr' = f (fmap g expr)
-        h' = f . fmap (fmap (f . fmap (fmap g))) $ h
+        h' = f . fmap (fmap $ g . fmap (fmap g)) $ h
     in Catch expr' h' (f next)
   Throw e -> Throw (f e)
   PutChar c next -> PutChar c (f next)
   GetChar next -> GetChar (f next)
+
+joinSpellT :: Monad m => SpellT e (SpellT e m) a -> SpellT e m a
+joinSpellT = unSpellT >>> iterT \case
+  Firebolt next -> wrap (Firebolt . pure $ join next)
+  Face a b next -> wrap (Face a b . pure $ join next)
+  Catch expr h next ->
+    let expr' = expr >>= joinSpellT
+        h' e = h >>= (fmap (fmap joinSpellT) . joinSpellT . ($ e))
+        next' a = next >>= ($ a)
+     in wrap (Catch (pure expr') (pure h') (pure next'))
+  Throw e -> e >>= liftF . Throw . pure
+  PutChar c next -> wrap (PutChar c (pure $ join next))
+  GetChar next -> wrap (GetChar (pure $ \c -> next >>= \n -> n c))
+
+spellTCollapseExceptT :: Monad m => SpellT e (ExceptT e m) a -> SpellT e m a
+spellTCollapseExceptT = hoistSpellT (\(ExceptT m) -> do
+  m' <- lift m
+  case m' of
+    Left e -> liftF (Throw (pure e))
+    Right r -> pure r
+  ) >>> joinSpellT
 
 -- | The functions should induce an isomorphism (m e <-> m e') to preserve throw/catch behaviour.
 mapSpellException :: Monad m => (e -> m e') -> (e' -> m e) -> SpellT e m a -> SpellT e' m a
@@ -87,7 +113,7 @@ mapSpellFException :: Monad m => (e -> m e') -> (e' -> m e) -> SpellF e m a -> S
 -- TODO: vaguely resembles functor adjointness, maybe could generalise
 mapSpellFException f _ (Throw e) = Throw (e >>= f)
 mapSpellFException f g (Catch expr h next) =
-  Catch (fmap (mapSpellException f g) expr) (fmap (\h' -> g >=> fmap (fmap $ mapSpellException f g) . h') h) next
+  Catch (fmap (mapSpellException f g) expr) (fmap (\h' -> fmap lift g >=> fmap (fmap $ mapSpellException f g) . mapSpellException f g . h') h) next
 mapSpellFException _ _ (Firebolt a) = Firebolt a
 mapSpellFException _ _ (Face a b next) = Face a b next
 mapSpellFException _ _ (PutChar c next) = PutChar c next
@@ -98,7 +124,9 @@ data SpellF e (m :: Type -> Type) next
   -- anything else should be annotated with 'm'.
   = Firebolt (m next)
   | Face !Double !Double (m next)
-  | forall a. Catch (m (SpellT e m a)) (m (e -> m (Maybe (SpellT e m a)))) (m (a -> next))
+  -- nesting of SpellT e m (Maybe (SpellT e m a)), because otherwise we lose the ability to join.
+  -- TODO: simplify to SpellT e m (Maybe a)?
+  | forall a. Catch (m (SpellT e m a)) (m (e -> SpellT e m (Maybe (SpellT e m a)))) (m (a -> next))
   | Throw (m e)
   -- ^ we can't just do throwSpell = liftF . throw because imprecise exceptions
   -- have different semantics from precise exceptions. Throwing precise
