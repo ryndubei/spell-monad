@@ -7,8 +7,7 @@
 module App.Thread.Repl
   ( ReplThread
   , ReplStatus(..)
-  , InterpretRequest
-  , withSpell
+  , InterpretRequest(..)
   , withReplThread
   , submitRepl
   , replStatus
@@ -20,7 +19,7 @@ module App.Thread.Repl
 
 import Control.Concurrent.STM
 import Control.Exception
-import Spell (Spell, SpellT)
+import Spell (Spell)
 import Language.Haskell.Interpreter
 import Control.Concurrent.Async
 import Control.Monad.Trans.Maybe
@@ -29,35 +28,6 @@ import Control.Monad
 import Data.Foldable
 import Control.Monad.Fix
 import Data.Bifunctor
-import Effectful
-import Effectful.Dispatch.Static
-import Data.Some.Newtype
-import Data.Dependent.Map (DMap)
-import Data.Unique.Tag
-import GHC.Exts
-import qualified Data.Dependent.Map as DMap
-import Data.Functor.Identity
-
--- | Effect for safely handling InterpretRequests
-data HandleSpell :: Effect
-
--- | 'withSpell' is non-deterministic since it will behave differently if
--- InterpretRequest is cancelled. Therefore WithSideEffects.
-type instance DispatchOf HandleSpell = Static WithSideEffects
-
-newtype instance StaticRep HandleSpell = HandleSpell (TVar (DMap (Tag RealWorld) Spell))
-
--- | Guarantees:
---
--- 1. 'Strict' values - anything that is expected to be evaluated immediately -
--- will be forced and free of exceptions for convenience.
--- 2. the SpellT will be cut short with a "Throw UserInterrupt" at the point
--- where the computation is interrupted.
-withSpell :: HandleSpell :> es => InterpretRequest -> (forall a. SpellT (Eff es) a -> Eff es a) -> Eff es ()
-withSpell InterpretRequest{submitResponseHere, toInterpret} nat = undefined
-
-isInterpretRequestValid :: HandleSpell :> es => InterpretRequest -> Eff es Bool
-isInterpretRequestValid = undefined
 
 -- | Compute an untrusted value on a separate thread.
 -- offload :: HandleSpell :> es => Untrusted a -> (a -> )
