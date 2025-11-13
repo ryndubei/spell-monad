@@ -4,7 +4,7 @@
 {-# LANGUAGE PartialTypeSignatures #-}
 {-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
 {-# HLINT ignore "Use =<<" #-}
-module Spell.Eval (evalSpellUntrusted, runEvalUntrusted, EvalT(..), EvalEnv(..), EvalHandle(..)) where
+module Spell.Eval (evalSpellUntrusted, runEvalUntrusted, EvalT) where
 
 import Spell (SpellT(..), SpellF(..), mapSpellException, mapSpellFException, Spell(..), generaliseSpell, SomeSpellException(..), hoistSpellT, spellTCollapseExceptT, joinSpellT)
 import Data.Functor.Identity
