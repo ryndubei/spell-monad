@@ -1,11 +1,12 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE DerivingVia #-}
 {-# LANGUAGE BlockArguments #-}
-{-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE PartialTypeSignatures #-}
-module Spell.Eval (evalSpell) where
+{-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
+{-# HLINT ignore "Use =<<" #-}
+module Spell.Eval (evalSpellUntrusted, runEvalUntrusted, EvalT(..), EvalEnv(..), EvalHandle(..)) where
 
-import Spell (SpellT(..), SpellF(..), mapSpellException, mapSpellFException, Spell(..), generaliseSpell, SomeSpellException(..), hoistSpellT')
+import Spell (SpellT(..), SpellF(..), mapSpellException, mapSpellFException, Spell(..), generaliseSpell, SomeSpellException(..), hoistSpellT, spellTCollapseExceptT, joinSpellT)
 import Data.Functor.Identity
 import Control.Monad.Trans.Free
 import Control.DeepSeq
@@ -26,17 +27,8 @@ import Control.Monad.Trans.Maybe
 import Control.Concurrent.Async
 import Foreign (Int64)
 import Control.Monad.Trans.Writer
-import Data.Bifunctor (second)
+import Data.Bifunctor (second, first)
 import Control.Monad.Trans.Except
-import Control.Category ((>>>))
-import Control.Monad.Fix
-import Data.IntMap.Strict (IntMap)
-import Data.IntSet (IntSet)
-import Data.Void
-import Control.Monad.Trans.State.Strict
-import Data.Dependent.Map (DMap)
-import qualified Data.Unique.Tag as PrimUniq
-import Control.Monad.ST (RealWorld)
 import Data.IORef
 import System.IO.Unsafe
 
@@ -72,8 +64,7 @@ runEvalUntrusted (EvalT r) = do
                 writeTMVar response (Left e)
           pure $ EvalHandle { pollEval, cancelEval }
       }
-      x <- runReaderT r undefined
-      undefined
+      runReaderT r env
 
 data EvalHandle n x = EvalHandle
   { pollEval :: n (Maybe (Either SomeException x))
@@ -90,6 +81,15 @@ instance MonadTrans (EvalT u) where
   {-# INLINE lift #-}
   lift = EvalT . lift
 
+-- | EvalSpell' specialised to Untrusted
+evalSpellUntrusted :: forall a.
+     Untrusted (Spell a)
+  -> SpellT
+      (Untrusted SomeException)
+      (MaybeT (EvalT Untrusted IO) `Product` ReaderT SomeException (EvalT Untrusted IO))
+      (Untrusted a)
+evalSpellUntrusted = evalSpell' untrustedCommSome
+
 -- | Evaluate using EvalT. _Failed evaluations are silently truncated with Throw_.
 --
 -- In the monad product, the left choice is poll, and the right choice is to
@@ -105,17 +105,18 @@ evalSpell'
   => (forall k (f :: k -> Type). u (Some f) -> Some (Compose u f)) -- ^ u must preserve hidden types
   -> u (Spell a)
   -> SpellT (u SomeException) (MaybeT (EvalT u n) `Product` ReaderT SomeException (EvalT u n)) (u a)
-evalSpell' uCommSome u = undefined
+evalSpell' uCommSome u = u4
   where
     {-# NOINLINE unsafeIORef #-}
     unsafeIORef :: forall x. IO (IORef x) -> IORef x
     unsafeIORef = unsafePerformIO
 
-    u' :: SpellT SomeException u a
-    u' = join . lift $ fmap (mapSpellException (\(SomeSpellException e) -> pure $ SomeException e) (\(SomeException e) -> pure $ SomeSpellException e) . generaliseSpell) u
+    u1 :: SpellT SomeException u a
+    -- TODO: this might accidentally let user code catch more exceptions than intended.
+    u1 = join . lift $ fmap (mapSpellException (\(SomeSpellException e) -> pure $ SomeException e) (\(SomeException e) -> pure $ SomeSpellException e) . generaliseSpell) u
 
-    u'' :: SpellT (u SomeException) (ExceptT SomeException (MaybeT (WriterT (Semicolonable (ReaderT SomeException (EvalT u n))) (EvalT u n)))) (u a)
-    u'' = evalSpell uCommSome (
+    u2 :: SpellT (u SomeException) (ExceptT SomeException (MaybeT (WriterT (Semicolonable (ReaderT SomeException (EvalT u n))) (EvalT u n)))) (u a)
+    u2 = evalSpell uCommSome (
       -- After a lot of thinking, I could not think of a better way of doing this.
       -- The only alternative is rewriting 'evalSpell' to accept an Applicative for n,
       -- so that we can compose monads.
@@ -133,21 +134,21 @@ evalSpell' uCommSome u = undefined
           p' <- lift pollEval
           let c' = mapReaderT lift $ ReaderT cancelEval
           pure (p', Semicolonable c')
-      ) u'
-    
-    u''' :: SpellT (u SomeException) (MaybeT (EvalT u n) `Product` ReaderT SomeException (EvalT u n)) (u a)
-    u''' = unSpellT u'' & fix \k -> \case
-      FreeT (ExceptT (MaybeT (WriterT m))) -> SpellT . FreeT $ Pair
-        do
-          (a, _) <- lift m
-          let a' = fmap (fmap $ fmap k) a
-              a'' = fmap (\case Left e -> Throw undefined) a'
-          MaybeT undefined
-        do undefined
+      ) u1
 
-frontloadFreeT :: (Functor f, Functor m) => FreeT f m a -> Free (Compose m (Free f)) a
-frontloadFreeT (FreeT m) =
-  FreeT (Identity (Free (Compose $ fmap (FreeT . fmap (bimap pure (pure . frontloadFreeT)) . Identity) m)))
+    u3 :: SpellT (u SomeException) (MaybeT (WriterT (Semicolonable (ReaderT SomeException (EvalT u n))) (EvalT u n))) (u a)
+    u3 = spellTCollapseExceptT $ hoistSpellT (mapExceptT $ fmap $ first pure) u2
+
+    u4 :: SpellT (u SomeException) (MaybeT (EvalT u n) `Product` ReaderT SomeException (EvalT u n)) (u a)
+    u4 = joinSpellT $ u3 & hoistSpellT \(MaybeT (WriterT m)) -> SpellT $ FreeT $ Pair
+      do MaybeT $ fmap (second unSpellT) <$> do
+          (pollResult, _) <- m
+          pure . fmap Pure $ pollResult
+      do ReaderT $ \e -> do
+          (_, Semicolonable (ReaderT cancelEval)) <- m
+          cancelEval e
+          (_, _) <- m -- poll again to avoid race conditions (will throw in the ExceptT from earlier)
+          pure (Free $ Throw (pure (pure e)))
 
 -- | Monoid instance for sequentially composing Applicatives.
 newtype Semicolonable f = Semicolonable (f ())
@@ -228,7 +229,15 @@ evalSpell uCommSome f (SpellT (FreeT m)) = do
             pure . Throw $ pure e
           TCatch -> do
             let expr = mapSpellException (pure . join) (pure . pure) . evalSpell uCommSome f . join . lift $ u >>= view _1
-                h e = fmap (fmap (mapSpellException (pure . join) (pure . pure) . evalSpell uCommSome f . join . lift)) . pullMaybe' . join . (<*> pure e) $ u >>= view _2
+                h e =
+                  fmap (fmap (mapSpellException (pure . join) (pure . pure) . evalSpell uCommSome f . join . lift))
+                  . join
+                  . fmap (lift . pullMaybe')
+                  . mapSpellException (pure . join) (pure . pure)
+                  . evalSpell uCommSome f
+                  . join
+                  . lift
+                  $ (<*> pure e) (u >>= view _2)
                 next = (<*>) (u >>= view _3)
             pure $ Catch (pure expr) (pure h) (pure next)
           TPutChar -> do
