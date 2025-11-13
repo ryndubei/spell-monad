@@ -10,6 +10,7 @@ import GHC.Generics
 import Control.DeepSeq
 import Data.Sequence (Seq)
 import App.Thread.Repl
+import Control.Concurrent.STM
 
 -- | Tells the UI thread how an object should be drawn.
 data ObjectIdentifier = Player deriving (Eq, Ord, Show, Generic)
@@ -27,18 +28,20 @@ data SimEvent = SimEvent
   , spellOutput :: Seq Char -- ^ for the PutChar side effect.
                             -- Not a String, so that left or right associativity
                             -- does not matter and finiteness is enforced.
+  , interpretResponse :: STM ()
   }
 
 instance Semigroup SimEvent where
   (<>) s1 s2 = SimEvent
     { gameOver = gameOver s1 || gameOver s2
     , spellOutput = spellOutput s1 <> spellOutput s2
+    , interpretResponse = interpretResponse s1 >> interpretResponse s2
     }
 
 instance Monoid SimEvent where
-  mempty = SimEvent { gameOver = False, spellOutput = mempty }
+  mempty = SimEvent { gameOver = False, spellOutput = mempty, interpretResponse = pure () }
 
-simSF :: SF (Event UserInput, Event InterpretRequest) (SimState, Event SimEvent)
+simSF :: SF (Event UserInput, Event (Maybe InterpretRequest)) (SimState, Event SimEvent)
 simSF = proc (u, req) -> do
   simInput <- processInput -< u
 

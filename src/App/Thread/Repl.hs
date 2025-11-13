@@ -13,6 +13,7 @@ module App.Thread.Repl
   , getReplResult
   , interruptRepl
   , takeInterpretRequest
+  , isInterpretRequestValid
   , sameStatus
   ) where
 
@@ -41,6 +42,9 @@ data InterpretRequest =
       -- (TODO: Becomes an AsyncException if a response is no longer needed?)
     , toInterpret :: Untrusted (Spell a)
     }
+
+isInterpretRequestValid :: InterpretRequest -> STM Bool
+isInterpretRequestValid InterpretRequest{submitResponseHere} = not <$> isEmptyTMVar submitResponseHere
 
 -- | Guarantees that the InterpretRequest is invalidated when the continuation ends.
 withInterpretRequest :: Spell a -> ((InterpretRequest, TMVar (Either SomeException a)) -> IO b) -> IO b

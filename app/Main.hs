@@ -22,6 +22,8 @@ import Data.These
 import Data.Semigroup
 import Data.Bifunctor (bimap)
 import FRP.Yampa
+import Control.Monad.Fix
+import Data.Function
 
 -- TODO: exception hierarchy
 
@@ -86,9 +88,30 @@ runGame th = evalContT do
       TermStdin _ -> pure () -- TODO
   lift $ link brickToSfTh
 
-  replToSfTh <- ContT . withAsync . forever $ atomically do
-    req <- takeInterpretRequest rth
-    sendSFThread sfth (That (Last req))
+  -- tail-recursive so fix should be ok
+  replToSfTh <- ContT $ withAsync $ Nothing & fix \k mreq -> do
+    case mreq of
+      -- we are already monitoring a request
+      Just req -> do
+        mreq2 <- atomically do
+          orElse
+            do
+              isInterpretRequestValid req >>= check . not
+              sendSFThread sfth (That (Last Nothing))
+              pure Nothing
+            do
+              req2 <- takeInterpretRequest rth
+              sendSFThread sfth (That (Last (Just req2)))
+              pure (Just req2)
+        k mreq2
+      -- we have no request to monitor
+      Nothing -> do
+        req <- atomically do
+          req <- takeInterpretRequest rth
+          sendSFThread sfth (That (Last (Just req)))
+          pure req
+        k (Just req)
+
   lift $ link replToSfTh
 
   firstExit <- lift $ race (atomically $ waitBrickThread bth) (atomically $ waitSFThread sfth)
