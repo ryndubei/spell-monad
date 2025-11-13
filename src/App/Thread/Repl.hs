@@ -33,7 +33,7 @@ import Untrusted
 -- | A request to carry out some side effects in the game.
 data InterpretRequest =
   forall a. InterpretRequest
-    { submitResponseHere :: TMVar (Either SomeException a -> STM ())
+    { submitResponseHere :: TMVar (Either SomeException (Untrusted a) -> STM ())
       -- ^ Exceptions in 'a' are expected and allowed: represents a
       -- lazy bottom value. SomeException when the computation terminated due
       -- to a thrown exception.
@@ -47,7 +47,7 @@ isInterpretRequestValid :: InterpretRequest -> STM Bool
 isInterpretRequestValid InterpretRequest{submitResponseHere} = not <$> isEmptyTMVar submitResponseHere
 
 -- | Guarantees that the InterpretRequest is invalidated when the continuation ends.
-withInterpretRequest :: Spell a -> ((InterpretRequest, TMVar (Either SomeException a)) -> IO b) -> IO b
+withInterpretRequest :: Spell a -> ((InterpretRequest, TMVar (Either SomeException (Untrusted a))) -> IO b) -> IO b
 withInterpretRequest s =
   bracket
     do
@@ -171,8 +171,7 @@ withReplThread k = do
 
           liftIO $ catch
             (case u of
-              -- evaluate to WHNF, do nothing if all okay
-              Right () -> pure ()
+              Right _ -> pure () -- TODO, should attempt to print the returned value
               Left e -> throwIO (UncaughtSpellException e)
             )
             -- note: lazy pattern as UncaughtSpellException is strict
