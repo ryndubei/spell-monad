@@ -31,6 +31,7 @@ import Data.Bifunctor (second, first)
 import Control.Monad.Trans.Except
 import Data.IORef
 import System.IO.Unsafe
+import Control.Monad.Fix
 
 data Instance c a = c a => Instance
 
@@ -75,7 +76,7 @@ newtype EvalEnv u n = EvalEnv { startEval :: forall x. NFData x => u x -> n (Eva
 
 -- | Some delayed evaluation strategy of 'u' in 'n'.
 newtype EvalT u n a = EvalT (ReaderT (EvalEnv u n) n a)
-  deriving (Functor, Applicative, Monad, MonadIO)
+  deriving (Functor, Applicative, Monad, MonadIO, MonadFix)
 
 instance MonadTrans (EvalT u) where
   {-# INLINE lift #-}

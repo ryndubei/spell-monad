@@ -1,8 +1,10 @@
 {-# LANGUAGE Arrows #-}
 {-# LANGUAGE BlockArguments #-}
+{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE RecordWildCards #-}
 module Simulation (SimState(..), SimEvent(..), simSF, ObjectIdentifier(..)) where
 
-import FRP.Yampa
+import FRP.BearRiver
 import Input
 import Simulation.Input
 import Control.Lens
@@ -11,6 +13,18 @@ import Control.DeepSeq
 import Data.Sequence (Seq)
 import App.Thread.Repl
 import Control.Concurrent.STM
+import Untrusted
+import Spell.Eval
+import App.Thread.SF
+import Control.Monad.Fix
+import Spell (SpellT)
+import Control.Exception
+import Control.Monad.Trans.Maybe
+import Data.Functor.Product
+import Control.Monad.Reader
+import Data.Some.Newtype
+import Data.Maybe
+import Control.Monad
 
 -- | Tells the UI thread how an object should be drawn.
 data ObjectIdentifier = Player deriving (Eq, Ord, Show, Generic)
@@ -41,13 +55,42 @@ instance Semigroup SimEvent where
 instance Monoid SimEvent where
   mempty = SimEvent { gameOver = False, spellOutput = mempty, interpretResponse = pure () }
 
-simSF :: SF (Event UserInput, Event (Maybe InterpretRequest)) (SimState, Event SimEvent)
+data ObjsInput = ObjsInput
+
+data ObjInput = ObjInput
+
+data ObjOutput = ObjOutput
+
+data ObjsOutput = ObjsOutput
+
+type Object = SF Identity ObjInput ObjOutput
+
+-- | Has knowledge of both the input and outputs of all objects.
+--
+-- Can alter both all current object outputs, and all next object inputs.
+type SpellEvaluator m = SF (EvalT Untrusted m) (ObjsInput, ObjsOutput) (ObjsInput -> ObjsInput, ObjOutput)
+
+simSF :: MonadFix m => SF (EvalT Untrusted m) (Event UserInput, Event (Maybe InterpretRequest)) (SimState, Event SimEvent)
 simSF = proc (u, req) -> do
-  simInput <- processInput -< u
+  simInput <- generaliseSF processInput -< u
+
+  let req' =
+        req <&> fmap \InterpretRequest{submitResponseHere, toInterpret} ->
+          let toInterpret' = evalSpellUntrusted toInterpret
+              submitException e = tryReadTMVar submitResponseHere >>= \case
+                Nothing -> pure ()
+                Just s -> s (Left e)
+              submitResult a = tryReadTMVar submitResponseHere >>= \case
+                Nothing -> pure ()
+                Just s -> s (Right a)
+           in (submitException, fmap submitResult toInterpret')
+
+  let newReq = void req'
+  reqHold <- arr (fromMaybe (const $ pure (), pure (pure ()))) <<< hold Nothing -< req'
 
   rec
     onGround <- iPre True <<< arr ((<= 0) . snd . playerPos) -< playerState
-    playerState <- player -< (simInput, onGround)
+    playerState <- generaliseSF player -< (simInput, onGround)
 
   returnA -< (SimState
     {
@@ -72,7 +115,7 @@ playerJumpVelocity = 10
 gravity :: Fractional a => a
 gravity = 9.8
 
-player :: SF (SimInput, Bool) PlayerState
+player :: SF Identity (SimInput, Bool) PlayerState
 player = proc (u, onGround) -> do
   let vx = fst $ playerBaseVelocity *^ (u ^. moveVector)
 

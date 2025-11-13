@@ -24,6 +24,7 @@ import Data.Bifunctor (bimap)
 import FRP.Yampa
 import Control.Monad.Fix
 import Data.Function
+import Spell.Eval
 
 -- TODO: exception hierarchy
 
@@ -67,7 +68,7 @@ runGame th = evalContT do
 
   lift $ withLoadingScreen th $ atomically $ replStatus rth >>= check . not . sameStatus Initialising
 
-  sfth <- ContT $ withSFThread id $ generaliseSF simSF'
+  sfth <- ContT $ withSFThread runEvalUntrusted simSF'
   -- Assumption: sfth does not block indefinitely until input is given
   -- (ideally does not block at all on first output)
   s0 <- lift . atomically $ takeSFThread sfth
@@ -77,6 +78,7 @@ runGame th = evalContT do
   sfToBrickTh <- ContT . withAsync . forever $ atomically do
     b <- isBrickQueueEmpty bth
     check b
+    -- TODO: run the interpretResponse in SimEvent
     takeSFThread sfth >>= sendBrickEvent bth . Left
     flushSFThreadEvents sfth >>= sendBrickEvent bth . Right
   lift $ link sfToBrickTh
