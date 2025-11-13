@@ -1,0 +1,73 @@
+{-# OPTIONS_GHC -Werror #-} -- eliminate possibilities for being out of sync with the actual types
+
+-- | Some ad-hoc dependent sums for existing types
+module DependentSums (DSum(..), Tag(..)) where
+
+import Spell
+import Data.Some.Newtype
+import Data.Functor.Product
+import Data.Functor.Identity
+import Control.DeepSeq
+import Data.Kind
+
+-- TODO: auto create instances via TH/generics
+
+class DSum s where
+  data Tag s :: Type -> Type
+  toDSum :: s -> Some (Product Identity (Tag s))
+  fromDSum :: Tag s args -> args -> s  
+
+instance DSum (SpellF e m next) where
+  data Tag (SpellF e m next) a where 
+    TFirebolt :: Tag (SpellF e m next) (m next)
+    TFace :: Tag (SpellF e m next) (Double, Double, m next)
+    TCatch :: Tag (SpellF e m next) (m (SpellT e m a), m (e -> SpellT e m (Maybe (SpellT e m a))), m (a -> next))
+    TThrow :: Tag (SpellF e m next) (m e)
+    TPutChar :: Tag (SpellF e m next) (Char, m next)
+    TGetChar :: Tag (SpellF e m next) (m (Char -> next))
+  toDSum (Firebolt next) = Some $ Pair (Identity next) TFirebolt
+  toDSum (Face a b next) = Some $ Pair (Identity (a,b,next)) TFace
+  toDSum (Catch expr h next) = Some $ Pair (Identity (expr,h,next)) TCatch
+  toDSum (Throw e) = Some $ Pair (Identity e) TThrow
+  toDSum (PutChar c next) = Some $ Pair (Identity (c, next)) TPutChar
+  toDSum (GetChar next) = Some $ Pair (Identity next) TGetChar
+  fromDSum TFirebolt a = Firebolt a
+  fromDSum TFace (a,b,next) = Face a b next
+  fromDSum TCatch (expr,h,next) = Catch expr h next
+  fromDSum TThrow e = Throw e
+  fromDSum TGetChar next = GetChar next
+  fromDSum TPutChar (c, next) = PutChar c next
+
+instance NFData (Tag (SpellF e m next) a) where
+  rnf TFirebolt = ()
+  rnf TFace = ()
+  rnf TCatch = ()
+  rnf TThrow = ()
+  rnf TGetChar = ()
+  rnf TPutChar = ()
+
+instance DSum (Either a b) where
+  data Tag (Either a b) c where
+    TLeft :: Tag (Either a b) a
+    TRight :: Tag (Either a b) b
+  toDSum (Left a) = Some $ Pair (Identity a) TLeft
+  toDSum (Right b) = Some $ Pair (Identity b) TRight
+  fromDSum TLeft a = Left a
+  fromDSum TRight b = Right b
+
+instance NFData (Tag (Either a b) c) where
+  rnf TLeft = ()
+  rnf TRight = ()
+
+instance DSum (Maybe a) where
+  data Tag (Maybe a) b where
+    TJust :: Tag (Maybe a) a
+    TNothing :: Tag (Maybe a) ()
+  toDSum (Just a) = Some $ Pair (Identity a) TJust
+  toDSum Nothing = Some $ Pair (Identity ()) TNothing
+  fromDSum TJust a = Just a
+  fromDSum TNothing () = Nothing
+
+instance NFData (Tag (Maybe a) b) where
+  rnf TJust = ()
+  rnf TNothing = ()

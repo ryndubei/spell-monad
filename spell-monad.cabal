@@ -57,6 +57,7 @@ library
                     , App.Thread
                     , App.Thread.Repl
                     , App.Thread.SF
+                    , DependentSums
                     , Input
                     , Simulation
                     , Simulation.Input
