@@ -27,6 +27,7 @@ import Control.Monad
 import Data.Foldable
 import Control.Monad.Fix
 import Data.Bifunctor
+import Untrusted
 
 -- | A request to carry out some side effects in the game.
 data InterpretRequest =
@@ -38,14 +39,15 @@ data InterpretRequest =
       -- Becomes empty if no longer needed (e.g. due to an interrupt):
       -- in that case should stop the Spell computation ASAP.
       -- (TODO: Becomes an AsyncException if a response is no longer needed?)
-    , toInterpret :: Spell a
+    , toInterpret :: Untrusted (Spell a)
     }
 
 -- | Guarantees that the InterpretRequest is invalidated when the continuation ends.
 withInterpretRequest :: Spell a -> ((InterpretRequest, TMVar (Either SomeException a)) -> IO b) -> IO b
-withInterpretRequest toInterpret =
+withInterpretRequest s =
   bracket
     do
+      let toInterpret = pure s
       response <- newEmptyTMVarIO
       submitResponseHere <- liftIO newEmptyTMVarIO
       -- function will empty the TMVar after first submit
