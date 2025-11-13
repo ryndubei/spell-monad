@@ -78,7 +78,7 @@ hoistSpellF g f = \case
   Face a b next -> Face a b (f next)
   Catch expr h next ->
     let expr' = f (fmap g expr)
-        h' = f . fmap (fmap $ g . fmap (fmap g)) $ h
+        h' = f $ fmap (fmap g) h
     in Catch expr' h' (f next)
   Throw e -> Throw (f e)
   PutChar c next -> PutChar c (f next)
@@ -90,7 +90,7 @@ joinSpellT = unSpellT >>> iterT \case
   Face a b next -> wrap (Face a b . pure $ join next)
   Catch expr h next ->
     let expr' = expr >>= joinSpellT
-        h' e = h >>= (fmap (fmap joinSpellT) . joinSpellT . ($ e))
+        h' e = h >>= joinSpellT . ($ e)
         next' a = next >>= ($ a)
      in wrap (Catch (pure expr') (pure h') (pure next'))
   Throw e -> e >>= liftF . Throw . pure
@@ -113,7 +113,7 @@ mapSpellFException :: Monad m => (e -> m e') -> (e' -> m e) -> SpellF e m a -> S
 -- TODO: vaguely resembles functor adjointness, maybe could generalise
 mapSpellFException f _ (Throw e) = Throw (e >>= f)
 mapSpellFException f g (Catch expr h next) =
-  Catch (fmap (mapSpellException f g) expr) (fmap (\h' -> fmap lift g >=> fmap (fmap $ mapSpellException f g) . mapSpellException f g . h') h) next
+  Catch (fmap (mapSpellException f g) expr) (fmap (\h' -> fmap lift g >=> mapSpellException f g . h') h) next
 mapSpellFException _ _ (Firebolt a) = Firebolt a
 mapSpellFException _ _ (Face a b next) = Face a b next
 mapSpellFException _ _ (PutChar c next) = PutChar c next
@@ -124,9 +124,7 @@ data SpellF e (m :: Type -> Type) next
   -- anything else should be annotated with 'm'.
   = Firebolt (m next)
   | Face !Double !Double (m next)
-  -- nesting of SpellT e m (Maybe (SpellT e m a)), because otherwise we lose the ability to join.
-  -- TODO: simplify to SpellT e m (Maybe a)?
-  | forall a. Catch (m (SpellT e m a)) (m (e -> SpellT e m (Maybe (SpellT e m a)))) (m (a -> next))
+  | forall a. Catch (m (SpellT e m a)) (m (e -> SpellT e m a)) (m (a -> next))
   | Throw (m e)
   -- ^ we can't just do throwSpell = liftF . throw because imprecise exceptions
   -- have different semantics from precise exceptions. Throwing precise
@@ -173,9 +171,10 @@ throwSpell = liftSpellF . Throw . Identity . SomeSpellException
 
 catch :: forall e a. Exception e => Spell a -> (e -> Spell a) -> Spell a
 catch s (h :: e -> Spell a) =
-    let s' = coerce s :: Identity (SpellT SomeSpellException Identity a)
-        h' = Identity $ \(SomeSpellException e) -> pure (generaliseSpell . h <$> cast e)
-     in Spell . FreeT . Identity . Free $ Catch s' h' (Identity pure)
+    let h' (SomeSpellException e) = case h <$> cast e of
+          Just m -> m
+          Nothing -> throwSpell e
+     in Spell . FreeT . Identity . Free $ Catch (coerce s) (coerce h') (Identity pure)
 
 firebolt :: Spell ()
 firebolt = liftSpellF (Firebolt (Identity ()))

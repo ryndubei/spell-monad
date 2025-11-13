@@ -192,21 +192,6 @@ evalSpell uCommSome f (SpellT (FreeT m)) = do
     pullEither' :: forall x y. u (Either x y) -> n (Either (u x) (u y))
     pullEither' = pullEither . fmap toDSum
 
-    pullMaybe' :: forall x. u (Maybe x) -> n (Maybe (u x))
-    pullMaybe' = pullMaybe . fmap toDSum
-
-    pullMaybe :: forall x. u (Some (Product Identity (Tag (Maybe x)))) -> n (Maybe (u x))
-    pullMaybe u0 = do
-      let u1 = uCommSome u0
-      withSome u1 \(Compose u2) -> do
-        let u3 = fmap (\(Pair (Identity a) b) -> (a,b)) u2
-            uargs = fmap fst u3
-            utag = fmap snd u3
-        tag <- f utag
-        case tag of
-          TJust -> pure $ Just uargs
-          TNothing -> pure Nothing
-
     pullSpellF' :: forall next. u (SpellF e u next) -> n (SpellF (u e) n (u next))
     pullSpellF' = pullSpellF . fmap (toDSum . mapSpellFException (pure . pure) id)
 
@@ -230,10 +215,7 @@ evalSpell uCommSome f (SpellT (FreeT m)) = do
           TCatch -> do
             let expr = mapSpellException (pure . join) (pure . pure) . evalSpell uCommSome f . join . lift $ u >>= view _1
                 h e =
-                  fmap (fmap (mapSpellException (pure . join) (pure . pure) . evalSpell uCommSome f . join . lift))
-                  . join
-                  . fmap (lift . pullMaybe')
-                  . mapSpellException (pure . join) (pure . pure)
+                  mapSpellException (pure . join) (pure . pure)
                   . evalSpell uCommSome f
                   . join
                   . lift
