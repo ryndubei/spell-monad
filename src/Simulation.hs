@@ -9,6 +9,7 @@ import Control.Lens
 import GHC.Generics
 import Control.DeepSeq
 import Data.Sequence (Seq)
+import App.Thread.Repl
 
 -- | Tells the UI thread how an object should be drawn.
 data ObjectIdentifier = Player deriving (Eq, Ord, Show, Generic)
@@ -37,8 +38,8 @@ instance Semigroup SimEvent where
 instance Monoid SimEvent where
   mempty = SimEvent { gameOver = False, spellOutput = mempty }
 
-simSF :: SF (Event UserInput) (SimState, Event SimEvent)
-simSF = proc u -> do
+simSF :: SF (Event UserInput, Event InterpretRequest) (SimState, Event SimEvent)
+simSF = proc (u, req) -> do
   simInput <- processInput -< u
 
   rec
