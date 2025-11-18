@@ -1,7 +1,6 @@
 {-# LANGUAGE Arrows #-}
 {-# LANGUAGE BlockArguments #-}
 {-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE RecordWildCards #-}
 module Simulation (SimState(..), SimEvent(..), simSF, ObjectIdentifier(..)) where
 
 import FRP.BearRiver
@@ -17,12 +16,6 @@ import Untrusted
 import Spell.Eval
 import App.Thread.SF
 import Control.Monad.Fix
-import Spell (SpellT)
-import Control.Exception
-import Control.Monad.Trans.Maybe
-import Data.Functor.Product
-import Control.Monad.Reader
-import Data.Some.Newtype
 import Data.Maybe
 import Control.Monad
 
@@ -54,21 +47,6 @@ instance Semigroup SimEvent where
 
 instance Monoid SimEvent where
   mempty = SimEvent { gameOver = False, spellOutput = mempty, interpretResponse = pure () }
-
-data ObjsInput = ObjsInput
-
-data ObjInput = ObjInput
-
-data ObjOutput = ObjOutput
-
-data ObjsOutput = ObjsOutput
-
-type Object = SF Identity ObjInput ObjOutput
-
--- | Has knowledge of both the input and outputs of all objects.
---
--- Can alter both all current object outputs, and all next object inputs.
-type SpellEvaluator m = SF (EvalT Untrusted m) (ObjsInput, ObjsOutput) (ObjsInput -> ObjsInput, ObjOutput)
 
 simSF :: MonadFix m => SF (EvalT Untrusted m) (Event UserInput, Event (Maybe InterpretRequest)) (SimState, Event SimEvent)
 simSF = proc (u, req) -> do
