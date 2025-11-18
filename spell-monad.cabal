@@ -60,6 +60,7 @@ library
                     , DependentSums
                     , Input
                     , Simulation
+                    , Simulation.Coordinates
                     , Simulation.Input
                     , Simulation.Objects
                     , Simulation.Objects.Player
@@ -86,6 +87,7 @@ library
                     , free
                     , hint
                     , lens
+                    , linear
                     , mtl
                     , parallel
                     , profunctors
