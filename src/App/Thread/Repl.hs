@@ -26,14 +26,14 @@ import Control.Monad.Trans.Maybe
 import Data.Void
 import Control.Monad
 import Data.Foldable
-import Control.Monad.Fix
-import Data.Bifunctor
+import Spell.Eval
 import Untrusted
+import Data.List (uncons)
 
 -- | A request to carry out some side effects in the game.
 data InterpretRequest =
   forall a. InterpretRequest
-    { submitResponseHere :: TMVar (Either SomeException (Untrusted a) -> STM ())
+    { submitResponseHere :: TMVar (Either (Untrusted SomeException) (Untrusted a) -> STM ())
       -- ^ Exceptions in 'a' are expected and allowed: represents a
       -- lazy bottom value. SomeException when the computation terminated due
       -- to a thrown exception.
@@ -47,7 +47,7 @@ isInterpretRequestValid :: InterpretRequest -> STM Bool
 isInterpretRequestValid InterpretRequest{submitResponseHere} = not <$> isEmptyTMVar submitResponseHere
 
 -- | Guarantees that the InterpretRequest is invalidated when the continuation ends.
-withInterpretRequest :: Spell a -> ((InterpretRequest, TMVar (Either SomeException (Untrusted a))) -> IO b) -> IO b
+withInterpretRequest :: Spell a -> ((InterpretRequest, TMVar (Either (Untrusted SomeException) (Untrusted a))) -> IO b) -> IO b
 withInterpretRequest s =
   bracket
     do
@@ -91,7 +91,7 @@ data ReplThread = ReplThread
 initialiseInterpreter :: MonadInterpreter m => m ()
 initialiseInterpreter = do
   setImports ["Prelude.Spell"]
-  
+
   -- The first interpreted value takes a lot longer than subsequent values,
   -- hence the repl isn't really initialised until this is done
   u <- interpret "putChar 'a'" (as :: Spell ())
@@ -163,35 +163,18 @@ withReplThread k = do
               orElse
                 -- either we are interrupted (early exit):
                 (readTVar replInterrupt >>= check >> pure Nothing)
-                -- or we get the response:
-                -- (UncaughtSpellException is a wrapper to not mistake an async
-                -- exception for one thrown by the player)
-                (Just . second (mapException UncaughtSpellException) <$> takeTMVar response)
+                (Just <$> takeTMVar response)
                 -- otherwise block
 
-          liftIO $ catch
-            (case u of
-              Right _ -> pure () -- TODO, should attempt to print the returned value
-              Left e -> throwIO (UncaughtSpellException e)
-            )
-            -- note: lazy pattern as UncaughtSpellException is strict
-            -- recursive, because exceptions can throw exceptions which throw exceptions...
-            (fix \this (~(UncaughtSpellException ex)) -> do
-              let msg = mapException UncaughtSpellException (displayException ex)
-              catch
-                -- need MaybeT here again because catch is in IO
-                (void . runMaybeT . for_ msg $ \c -> do
-                  _ <- liftIO . evaluate $ mapException UncaughtSpellException c
-                  hoistMaybe =<< (liftIO . atomically) do
-                    b <- readTVar replInterrupt
-                    if b
-                      then pure Nothing -- early exit
-                      else do
-                        writeTQueue replResult c
-                        pure (Just ())
-                )
-                this
-              )
+          void . liftIO . race (atomically $ readTVar replInterrupt >>= check) $
+            case u of
+              Left e -> handleUntrustedException replResult e
+              Right u' -> do
+                u'' <- withTrusted (Just untrustedAllocationLimit) u' wait
+                case u'' of
+                  Right () -> pure ()
+                  Left e -> handleUntrustedException replResult e
+
           -- done, unblock unless we were interrupted (meaning already unblocked)
           liftIO $ atomically do
             interrupted <- readTVar replInterrupt
@@ -200,6 +183,29 @@ withReplThread k = do
       pure $ either id absurd e
     \replThreadAsync -> k ReplThread{..}
 
+-- | Print the UntrustedException to the given queue.
+--
+-- Recursive, because exceptions can throw exceptions which throw exceptions...
+handleUntrustedException :: TQueue Char -> Untrusted SomeException -> IO ()
+handleUntrustedException q u = do
+  let u' = fmap displayException u
+  printUntrustedString q u' >>= \case
+    Just e -> handleUntrustedException q e
+    Nothing -> pure ()
+
+printUntrustedString :: TQueue Char -> Untrusted String -> IO (Maybe (Untrusted SomeException))
+printUntrustedString q u = do
+  let u' = fmap uncons u
+      uhead = fmap (fmap fst) u'
+      utail = fmap (maybe mempty snd) u'
+  ec <- withTrusted (Just untrustedAllocationLimit) uhead wait
+  case ec of
+    Left e -> pure (Just e)
+    Right Nothing -> pure Nothing
+    Right (Just c) -> do
+      atomically $ writeTQueue q c
+      printUntrustedString q utail
+      
 -- | An equivalence relation for ReplStatus
 sameStatus :: ReplStatus -> ReplStatus -> Bool
 sameStatus Initialising Initialising = True
@@ -207,9 +213,6 @@ sameStatus Unblocked Unblocked = True
 sameStatus Blocked Blocked = True
 sameStatus (Dead _) (Dead _) = True
 sameStatus _ _ = False
-
-newtype UncaughtSpellException = UncaughtSpellException SomeException deriving Show
-instance Exception UncaughtSpellException
 
 -- | Retry until the ReplThread has a valid InterpretRequest.
 takeInterpretRequest :: ReplThread -> STM InterpretRequest
@@ -237,7 +240,7 @@ replStatus ReplThread{..} = do
   case asyncResult of
     Nothing -> do
       initialised <- readTVar replInitialised
-      blocked <- readTVar replBlocked 
+      blocked <- readTVar replBlocked
       pure $ case (initialised, blocked) of
         (False, _) -> Initialising
         (True, True) -> Blocked

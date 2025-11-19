@@ -5,12 +5,28 @@ module Simulation.Input (processInput, SimInput(..), moveVector) where
 import Input
 import FRP.Yampa
 import Control.Lens
+import Control.Applicative
 
 data SimInput = SimInput
   { simMoveX :: !Double
   , simMoveY :: !Double
   , simJump :: !(Event ())
+  , inputWeight :: !Int
+    -- ^ For the Semigroup instance: should be an average, therefore this is incremented on every append.
   }
+
+instance Semigroup SimInput where
+  (<>) SimInput{inputWeight = 0} s = s
+  (<>) s SimInput{inputWeight = 0} = s
+  (<>) s1 s2 = SimInput
+    { simMoveX = simMoveX s1 + simMoveX s2 / fromIntegral (inputWeight s1 + inputWeight s2)
+    , simMoveY = simMoveY s1 + simMoveY s2 / fromIntegral (inputWeight s1 + inputWeight s2)
+    , simJump = simJump s1 <|> simJump s2
+    , inputWeight = inputWeight s1 + inputWeight s2
+    }
+
+instance Monoid SimInput where
+  mempty = SimInput { simMoveX = 0, simMoveY = 0, simJump = NoEvent, inputWeight = 0 }
 
 -- | norm (u ^. moveVector) = min 1 (norm u)
 moveVector :: Lens' SimInput (Double, Double)
@@ -21,7 +37,7 @@ processInput :: SF (Event UserInput) SimInput
 processInput = proc u -> do
   (simMoveX, simMoveY) <- smoothInput -< clampMagnitude . (^. userInputMoveVector) <$> u
   let simJump = tagWith () . filterE id $ fmap jump u
-
+      inputWeight = 1
   returnA -< SimInput{..}
 
 inputDecayHalfLife :: Floating a => a

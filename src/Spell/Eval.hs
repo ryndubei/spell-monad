@@ -4,7 +4,7 @@
 {-# LANGUAGE PartialTypeSignatures #-}
 {-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
 {-# HLINT ignore "Use =<<" #-}
-module Spell.Eval (evalSpellUntrusted, runEvalUntrusted, EvalT) where
+module Spell.Eval (evalSpellUntrusted, runEvalUntrusted, EvalT, untrustedAllocationLimit) where
 
 import Spell (SpellT(..), SpellF(..), mapSpellException, mapSpellFException, Spell(..), generaliseSpell, SomeSpellException(..), hoistSpellT, spellTCollapseExceptT, joinSpellT)
 import Data.Functor.Identity
@@ -27,7 +27,7 @@ import Control.Monad.Trans.Maybe
 import Control.Concurrent.Async
 import Foreign (Int64)
 import Control.Monad.Trans.Writer
-import Data.Bifunctor (second, first)
+import Data.Bifunctor (second)
 import Control.Monad.Trans.Except
 import Data.IORef
 import System.IO.Unsafe
@@ -41,7 +41,7 @@ untrustedAllocationLimit = 2^(20 :: Int64) -- 10MiB in bytes
 runEvalUntrusted :: EvalT Untrusted IO a -> IO a
 runEvalUntrusted (EvalT r) = do
   -- Sorry for the type signature
-  q <- newTQueueIO :: IO (TQueue (TVar Bool, Some (Untrusted `Product` Compose TMVar (Either SomeException) `Product` Instance NFData)))
+  q <- newTQueueIO :: IO (TQueue (TVar Bool, Some (Untrusted `Product` Compose TMVar (Either (Untrusted SomeException)) `Product` Instance NFData)))
   withAsync
     do
       forever do
@@ -62,17 +62,17 @@ runEvalUntrusted (EvalT r) = do
           let pollEval = atomically $ tryReadTMVar response
               cancelEval e = atomically do
                 writeTVar alive False
-                writeTMVar response (Left e)
+                writeTMVar response (Left (toUntrusted e))
           pure $ EvalHandle { pollEval, cancelEval }
       }
       runReaderT r env
 
-data EvalHandle n x = EvalHandle
-  { pollEval :: n (Maybe (Either SomeException x))
+data EvalHandle u n x = EvalHandle
+  { pollEval :: n (Maybe (Either (u SomeException) x))
   , cancelEval :: SomeException -> n ()
   } deriving Functor
 
-newtype EvalEnv u n = EvalEnv { startEval :: forall x. NFData x => u x -> n (EvalHandle n x) }
+newtype EvalEnv u n = EvalEnv { startEval :: forall x. NFData x => u x -> n (EvalHandle u n x) }
 
 -- | Some delayed evaluation strategy of 'u' in 'n'.
 newtype EvalT u n a = EvalT (ReaderT (EvalEnv u n) n a)
@@ -116,7 +116,7 @@ evalSpell' uCommSome u = u4
     -- TODO: this might accidentally let user code catch more exceptions than intended.
     u1 = join . lift $ fmap (mapSpellException (\(SomeSpellException e) -> pure $ SomeException e) (\(SomeException e) -> pure $ SomeSpellException e) . generaliseSpell) u
 
-    u2 :: SpellT (u SomeException) (ExceptT SomeException (MaybeT (WriterT (Semicolonable (ReaderT SomeException (EvalT u n))) (EvalT u n)))) (u a)
+    u2 :: SpellT (u SomeException) (ExceptT (u SomeException) (MaybeT (WriterT (Semicolonable (ReaderT SomeException (EvalT u n))) (EvalT u n)))) (u a)
     u2 = evalSpell uCommSome (
       -- After a lot of thinking, I could not think of a better way of doing this.
       -- The only alternative is rewriting 'evalSpell' to accept an Applicative for n,
@@ -138,7 +138,7 @@ evalSpell' uCommSome u = u4
       ) u1
 
     u3 :: SpellT (u SomeException) (MaybeT (WriterT (Semicolonable (ReaderT SomeException (EvalT u n))) (EvalT u n))) (u a)
-    u3 = spellTCollapseExceptT $ hoistSpellT (mapExceptT $ fmap $ first pure) u2
+    u3 = spellTCollapseExceptT u2
 
     u4 :: SpellT (u SomeException) (MaybeT (EvalT u n) `Product` ReaderT SomeException (EvalT u n)) (u a)
     u4 = joinSpellT $ u3 & hoistSpellT \(MaybeT (WriterT m)) -> SpellT $ FreeT $ Pair

@@ -63,6 +63,7 @@ library
                     , Simulation.Coordinates
                     , Simulation.Input
                     , Simulation.Objects
+                    , Simulation.Objects.All
                     , Simulation.Objects.Player
                     , Simulation.Objects.Firebolts
                     , Spell.Eval

@@ -11,6 +11,7 @@ module Simulation.Objects
   , ObjOutput
   , Player(..)
   , FireboltsObject(..)
+  , objectsSF
   ) where
 
 import FRP.BearRiver

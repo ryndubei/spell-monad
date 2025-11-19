@@ -19,7 +19,9 @@ import Control.Concurrent
 data Untrusted a = Untrusted a deriving Functor
 
 instance Applicative Untrusted where
+  {-# INLINE pure #-}
   pure = toUntrusted
+  {-# INLINE (<*>) #-}
   (<*>) = ap
 
 instance Monad Untrusted where
@@ -27,8 +29,10 @@ instance Monad Untrusted where
   -- in pure code.
   -- Therefore we have to re-wrap the Untrusted after applying f, since f
   -- may be strict.
+  {-# INLINE (>>=) #-}
   (>>=) (Untrusted a) f = Untrusted (let Untrusted b = f a in b)
 
+{-# INLINE toUntrusted #-}
 toUntrusted :: a -> Untrusted a
 toUntrusted = Untrusted
 
@@ -39,11 +43,12 @@ instance Exception SomeImpreciseException
 -- | Evaluate an Untrusted value on a separate thread. The Async will either
 -- return the caught imprecise exception or a fully-forced value according to
 -- the NFData instance. Obviously, the NFData instance must be trusted.
+{-# INLINE withTrusted #-}
 withTrusted
   :: NFData a
   => Maybe Int64 -- ^ Allocation limit in bytes. Disabled if Nothing.
   -> Untrusted a
-  -> (Async (Either SomeException a) -> IO b)
+  -> (Async (Either (Untrusted SomeException) a) -> IO b)
   -> IO b
 withTrusted allocationLimit (Untrusted a) = withAsync do
   catch
@@ -61,10 +66,11 @@ withTrusted allocationLimit (Untrusted a) = withAsync do
           traverse_ (setAllocationCounter >=> const enableAllocationLimit) allocationLimit
           catch
             (fmap Right . evaluate . mapException SomeImpreciseException $ force a)
-            \(SomeImpreciseException e) -> pure $ Left e
-    \AllocationLimitExceeded -> pure $ Left (SomeException AllocationLimitExceeded)
+            \(SomeImpreciseException e) -> pure $ Left (toUntrusted e)
+    \AllocationLimitExceeded -> pure $ Left (toUntrusted (SomeException AllocationLimitExceeded))
 
 -- | Hidden types are preserved.
+{-# INLINE untrustedCommSome #-}
 untrustedCommSome :: Untrusted (Some f) -> Some (Compose Untrusted f)
 -- since Some is a newtype, this pattern match is lazy on the contents,
 -- so untrustedCommSome a `seq` () = ()
