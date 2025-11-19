@@ -3,11 +3,10 @@
 module Simulation.Objects.Player (ObjInput(..), ObjOutput(..)) where
 
 import Simulation.Objects
-import Simulation.Objects.Terrain
+import Simulation.Objects.Firebolts
 import FRP.BearRiver
 import Simulation.Input
 import Spell
-import Simulation.Objects.Gravity
 import Control.Lens
 import Control.Monad.Fix
 
@@ -56,7 +55,7 @@ playerObj = proc u -> do
     -- discontinuities of up to 1 unit. Player is allowed to jump.
     groundedMovement :: (Double, Double) -> SF m (ObjInput (Player e m r), ObjsOutput e m r) ((Double, Double), Event (Double, Double))
     groundedMovement pos0 = loopPre pos0 $
-      proc ((PlayerInput{simInput}, Objects{gravity = GravityOutput{gravityX, gravityY}, terrain = TerrainOutput{cellHasTerrain}}), (x,y)) -> do
+      proc ((PlayerInput{simInput}, _), (x,y)) -> do
         let (vx, _) = playerBaseVelocity *^ (simInput ^. moveVector)
             -- Normal of the nearest valid surface (if any)
             -- Can be ambiguous in two directions:

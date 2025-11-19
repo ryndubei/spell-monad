@@ -65,8 +65,6 @@ library
                     , Simulation.Objects
                     , Simulation.Objects.Player
                     , Simulation.Objects.Firebolts
-                    , Simulation.Objects.Terrain
-                    , Simulation.Objects.Gravity
                     , Spell.Eval
                     , Untrusted
     default-extensions:
