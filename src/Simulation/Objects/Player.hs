@@ -1,6 +1,7 @@
 {-# OPTIONS_GHC -Wno-orphans #-}
 {-# LANGUAGE Arrows #-}
 {-# LANGUAGE BlockArguments #-}
+{-# LANGUAGE LambdaCase #-}
 module Simulation.Objects.Player (ObjInput(..), ObjOutput(..), playerObj) where
 
 import Simulation.Objects
@@ -81,18 +82,22 @@ spellInterpreter = proc (r, e, o, objsOutput) -> do
     continuousInterpreter :: SF m ((Rational, Event SomeException, ObjsOutput e m r), ObjInput (Player e m r)) (Rational, Event r, ObjsInput e m r)
     continuousInterpreter = proc ((cost, e, objsOutput), o) -> do
       isf <- newConstantInterpreter -< o
+      -- Ignore external exception at time 0: it's meant for the code that is already
+      -- running, not the code that we are switching to.
+      let isf' = fmap ((\(a,_,c) -> (a,NoEvent,c)) >=-) isf
       -- Prioritise the user interrupt, since it cannot be caught
-      let e' = (SomeException UserInterrupt <$ isf) <|> e
-      -- I am making the brave assumption that rSwitch still applies
-      -- the input to the previous sf even if we have an event on
-      -- the given tick
-      rSwitch nothingInterpreter -< ((cost, e', objsOutput), isf)
+          e' = (SomeException UserInterrupt <$ isf) <|> e
+      rSwitch nothingInterpreter -< ((cost, e', objsOutput), isf')
 
     newConstantInterpreter = proc PlayerInput{replInput, playerStdin} -> do
       returnA -< maybe nothingInterpreter (\(s, collapse, collapseException) -> proc (r,e, objsOutput) -> do
         -- TODO: print stdout
         (mana', result, objsInput, _) <- constantInterpreter s collapse collapseException -< (r, e, objsOutput, playerStdin)
-        result' <- edgeJust -< result
+        -- can't use 'edgeJust', because it has the surprising definition of 'edgeBy ... (Just undefined)' (???)
+        -- so a Just output on the first tick would be discarded
+        result' <- edgeBy
+          (\case Nothing -> (\case Just a -> Just a; _ -> Nothing); _ -> const Nothing)
+          Nothing -< result
         returnA -< (mana', result', objsInput)
         ) <$> replInput
 
