@@ -1,7 +1,7 @@
 {-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
 {-# HLINT ignore "Use newtype instead of data" #-}
 {-# LANGUAGE BlockArguments #-}
-module Untrusted (Untrusted, toUntrusted, withTrusted, untrustedCommSome) where
+module Untrusted (Untrusted, toUntrusted, withTrusted, untrustedCommSome, unsafeFromUntrusted) where
 
 import Control.DeepSeq
 import Control.Exception
@@ -75,3 +75,7 @@ untrustedCommSome :: Untrusted (Some f) -> Some (Compose Untrusted f)
 -- since Some is a newtype, this pattern match is lazy on the contents,
 -- so untrustedCommSome a `seq` () = ()
 untrustedCommSome (Untrusted (Some a)) = Some (Compose (Untrusted a))
+
+{-# INLINE unsafeFromUntrusted #-}
+unsafeFromUntrusted :: Untrusted a -> a
+unsafeFromUntrusted (Untrusted a) = a
