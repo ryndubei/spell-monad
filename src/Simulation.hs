@@ -17,6 +17,7 @@ import Spell.Eval
 import App.Thread.SF
 import Simulation.Objects.All
 import qualified Data.IntMap.Strict as IntMap
+import Simulation.Coordinates
 
 -- | Tells the UI thread how an object should be drawn.
 data ObjectIdentifier = Player deriving (Eq, Ord, Show, Generic)
@@ -60,8 +61,8 @@ simSF = proc (u, req) -> do
               submitResult a = tryReadTMVar submitResponseHere >>= \case
                 Nothing -> pure ()
                 Just s -> s (Right a)
-           in (fmap submitResult toInterpret', submitException)
-      playerIn = PlayerInput { replInput, simInput }
+           in (fmap submitResult toInterpret', submitException, pure)
+      playerIn = PlayerInput { replInput, simInput, overrideFacingDirection = NoEvent, playerStdin = NoEvent }
       objsInput = mempty { player = playerIn }
   objsOut <- objectsSF objsOutput0 objs0 -< objsInput
   let playerPos = (playerX (player objsOut), playerY (player objsOut))
@@ -80,8 +81,9 @@ simSF = proc (u, req) -> do
         { playerX = 0
         , playerY = 0
         , playerMana = 100
-        , replOutput = mempty
+        , playerStdout = mempty
         , replResponse = noEvent
+        , playerFacingDirection = V2 1 0
         }
       , firebolts = FireboltOutputs IntMap.empty
       }

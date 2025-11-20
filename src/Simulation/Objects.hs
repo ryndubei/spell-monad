@@ -60,7 +60,7 @@ instance
 
 objectsSF :: forall e m r. (Monad m, Monoid (ObjsInput e m r)) => ObjsOutput e m r -> Objects e m r -> SF m (ObjsInput e m r) (ObjsOutput e m r)
 objectsSF objsOutput0 objs = loopPre (objsOutput0, mempty) $ proc (objsInputExternal, (objsOutput, objsInputInternal)) -> do
-  let objsInput = objsInputExternal <> objsInputInternal
+  let objsInput = objsInputInternal <> objsInputExternal
   (player, in1) <- pobj -< (player objsInput, objsOutput)
   (firebolts, in2) <- fobj -< (firebolts objsInput, objsOutput)
   let objsInputInternal' = in1 <> in2
