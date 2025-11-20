@@ -75,12 +75,17 @@ runGame th = evalContT do
 
   bth <- ContT $ withGameUI th rth s0
 
-  sfToBrickTh <- ContT . withAsync . forever $ atomically do
-    b <- isBrickQueueEmpty bth
-    check b
-    -- TODO: run the interpretResponse in SimEvent
-    takeSFThread sfth >>= sendBrickEvent bth . Left
-    flushSFThreadEvents sfth >>= sendBrickEvent bth . Right
+  sfToBrickTh <- ContT . withAsync $ forever do
+    responses <- atomically do
+      b <- isBrickQueueEmpty bth
+      check b
+      takeSFThread sfth >>= sendBrickEvent bth . Left
+      flushSFThreadEvents sfth >>= \es -> do
+        let responses = mapM_ interpretResponse es
+        -- TODO: split into a type not exposing interpretResponse to the brick thread
+        sendBrickEvent bth $ Right es
+        pure responses
+    atomically responses
   lift $ link sfToBrickTh
 
   brickToSfTh <- ContT . withAsync . forever $ atomically do

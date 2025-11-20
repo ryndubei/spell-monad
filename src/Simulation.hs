@@ -1,6 +1,7 @@
 {-# LANGUAGE Arrows #-}
 {-# LANGUAGE BlockArguments #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE RecordWildCards #-}
 module Simulation (SimState(..), SimEvent(..), simSF, ObjectIdentifier(..)) where
 
 import FRP.BearRiver
@@ -65,15 +66,16 @@ simSF = proc (u, req) -> do
       playerIn = PlayerInput { replInput, simInput, overrideFacingDirection = NoEvent, playerStdin = NoEvent }
       objsInput = mempty { player = playerIn }
   objsOut <- objectsSF objsOutput0 objs0 -< objsInput
-  let playerPos = (playerX (player objsOut), playerY (player objsOut))
-
+  let PlayerOutput{..} = player objsOut 
+      playerPos = (playerX, playerY)
+      simEvent = fmap (\r -> mempty { interpretResponse = r }) replResponse
   returnA -< (SimState
     {
       -- square of diameter 2
       sdf = \(x,y) -> let (x',y') = (x,y) ^-^ playerPos in (Player, max (abs x' - 1) (abs y' - 1))
     , cameraX = 0
     , cameraY = 0
-    }, NoEvent)
+    }, simEvent)
   where
     objs0 = Objects { player = Identity (PlayerObject playerObj), firebolts = Identity (FireboltsObject fireboltsObj) }
     objsOutput0 = Objects
