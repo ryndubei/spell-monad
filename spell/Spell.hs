@@ -51,7 +51,7 @@ newtype SpellT (e :: Type) (m :: Type -> Type) (a :: Type) = SpellT {
 -- So the instance is just declared by hand.
 instance Monad m => MonadFree (SpellF e m) (SpellT e m) where
   {-# INLINE wrap #-}
-  wrap = wrap . coerce
+  wrap = SpellT . wrap . fmap unSpellT
 
 instance MonadTrans (SpellT e) where
   {-# INLINE lift #-}
