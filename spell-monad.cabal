@@ -149,3 +149,16 @@ executable terminal-demo-with-repl
                     , transformers
                     , vty
     ghc-options: -threaded
+
+executable eval-untrusted-demo
+    import:           warnings
+    default-language: GHC2021
+    hs-source-dirs:   demos
+    main-is:          EvalUntrusted.hs
+    build-depends:    base
+                    , spell-monad
+                    , spell-monad:spell
+                    , async
+                    , transformers
+                    , free
+    ghc-options: -threaded
