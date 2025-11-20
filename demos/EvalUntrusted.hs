@@ -69,7 +69,6 @@ main = runEvalUntrusted do
                   liftIO . putStrLn $ "PutChar " ++ show c
                   go (SpellT . join $ lift next)
                 GetChar next -> do
-                  liftIO . putStrLn $ "GetChar"
-                  c <- liftIO Prelude.getChar
-                  let next' = SpellT . join . lift $ fmap ($ c) next
+                  liftIO . putStrLn $ "GetChar <- 'z'"
+                  let next' = SpellT . join . lift $ fmap ($ 'z') next
                   go next'
