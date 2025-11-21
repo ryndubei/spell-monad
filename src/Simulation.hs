@@ -20,6 +20,7 @@ import Simulation.Objects.All
 import Simulation.Coordinates
 import Data.Foldable
 import Data.Function
+import qualified Data.IntMap.Strict as IntMap
 
 -- | Tells the UI thread how an object should be drawn.
 data ObjectIdentifier = Player | Firebolt deriving (Eq, Ord, Show, Generic)
@@ -81,7 +82,7 @@ simSF = proc (u, req) -> do
               (\FireboltState{fireboltPos, fireboltRadius} ->
                 let fireboltDpos = V2 x y ^-^ fireboltPos
                  in dot fireboltDpos fireboltDpos - fireboltRadius
-              ) fireboltStates
+              ) (snd <$> IntMap.toList fireboltStates)
          in minimumBy (compare `on` snd) $ (Player, playerDistance) : map (Firebolt,) fireboltDistances
     , cameraX = 0
     , cameraY = 0

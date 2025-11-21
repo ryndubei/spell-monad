@@ -4,14 +4,17 @@ module Simulation.Objects.Firebolts (FireboltState(..), ObjInput(..), ObjOutput(
 import Simulation.Objects
 import FRP.BearRiver
 import Simulation.Coordinates
-import Data.Set (Set)
-import qualified Data.Set as Set
 import Data.Functor.Identity
+import Data.IntMap.Strict (IntMap)
+import Data.IntSet (IntSet)
+import qualified Data.IntMap.Strict as IntMap
+import qualified Data.IntSet as IntSet
+import App.Thread.SF
 
 -- Firebolts are indexed by their states. You cannot have two firebolts with the exact same state.
-data instance ObjInput FireboltsObject = FireboltsInput { spawnFirebolts :: Event (Set FireboltState), killFirebolts :: Event (Set FireboltState) }
-data FireboltState = FireboltState { fireboltPos :: !V, fireboltVel :: !V, fireboltRadius :: !Double, lifetime :: !Int } deriving (Eq, Ord, Show)
-newtype instance ObjOutput FireboltsObject = FireboltOutputs [FireboltState]
+data instance ObjInput FireboltsObject = FireboltsInput { spawnFirebolts :: Event [FireboltState], killFirebolts :: Event IntSet }
+data FireboltState = FireboltState { fireboltPos :: !V, fireboltVel :: !V, fireboltRadius :: !Double, lifetime :: !Double } deriving (Eq, Ord, Show)
+newtype instance ObjOutput FireboltsObject = FireboltOutputs (IntMap FireboltState)
 
 instance Semigroup (ObjInput FireboltsObject) where
   (<>) f1 f2 = FireboltsInput
@@ -22,18 +25,21 @@ instance Monoid (ObjInput FireboltsObject) where
   mempty = FireboltsInput NoEvent NoEvent
 
 fireboltsObj :: forall e m r. (Monad m, Monoid (ObjsInput e m r)) => Object e m r FireboltsObject
-fireboltsObj = dpSwitchB []
-  (proc ((FireboltsInput{ spawnFirebolts, killFirebolts }, _), _) -> do
-    let spawns = foldr (\fs -> (Set.insert fs .)) id <$> spawnFirebolts
-        kills = foldr (\fs -> (Set.delete fs .)) id <$> killFirebolts
-        endo = mergeBy (.) spawns kills -- kill first, then spawn
-    returnA -< endo
+fireboltsObj = dpSwitchB mempty
+  (proc ((FireboltsInput{ spawnFirebolts, killFirebolts }, _), states) -> do
+    let spawns i = snd . foldr (\fb (k, f) -> (k + 1, IntMap.insert k fb . f)) (i, id) <$> spawnFirebolts
+        idx = maybe 0 fst $ IntMap.lookupLE (maxBound :: Int) states
+        kills' = let m' = IntMap.filter ((<= 0) . lifetime) states in if IntMap.null m' then NoEvent else Event $ IntMap.keysSet m'
+    returnA -< mergeBy (\(a,_) (_,b) -> (a,b)) (fmap (, mempty) (spawns idx)) ((mempty,) <$> mergeBy (<>) killFirebolts kills' )
   )
-  (\sfs endo -> 
-    let sfs' = dSwitch (parB sfs >>> arr (\c -> (c, Event c))) (\c -> undefined)
+  (\sfs (spawns, kills) ->
+    let newObjs = fireboltObj <$> spawns mempty
+        sfs' =
+          par (\x ys -> fmap (x,) ys)
+          . IntSet.fold (\k -> (IntMap.delete k .)) id kills $
+          (sfs <> fmap ((arr (const ()) >>>) . generaliseSF) newObjs)
      in proc u -> do
-      col <- sfs' -< u
-      undefined -< undefined
+      sfs' -< u
   )
   >>> arr (\x -> (FireboltOutputs x, mempty))
 
@@ -42,6 +48,6 @@ fireboltObj s0 = proc () -> do
   dlife <- time -< ()
   dpos <- integral -< fireboltVel s0
   let pos = fireboltPos s0 ^+^ dpos
-      life = lifetime s0 - floor dlife
+      life = lifetime s0 - dlife
   returnA -< s0 { fireboltPos = pos, lifetime = life }
 
