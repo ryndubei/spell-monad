@@ -34,7 +34,8 @@ data SimState = SimState
   }
 
 data SimEvent = SimEvent
-  { spellOutput :: Seq Char -- ^ for the PutChar side effect.
+  { gameOver :: !Bool
+  , spellOutput :: Seq Char -- ^ for the PutChar side effect.
                             -- Not a String, so that left or right associativity
                             -- does not matter and finiteness is enforced.
   , interpretResponse :: STM ()
@@ -42,12 +43,13 @@ data SimEvent = SimEvent
 
 instance Semigroup SimEvent where
   (<>) s1 s2 = SimEvent
-    { spellOutput = spellOutput s1 <> spellOutput s2
+    { gameOver = gameOver s1 || gameOver s2
+    , spellOutput = spellOutput s1 <> spellOutput s2
     , interpretResponse = interpretResponse s1 >> interpretResponse s2
     }
 
 instance Monoid SimEvent where
-  mempty = SimEvent { spellOutput = mempty, interpretResponse = pure () }
+  mempty = SimEvent { gameOver = False, spellOutput = mempty, interpretResponse = pure () }
 
 simSF :: SF (EvalT Untrusted IO) (Event UserInput, Event (Maybe InterpretRequest)) (SimState, Event SimEvent)
 simSF = proc (u, req) -> do
@@ -68,7 +70,7 @@ simSF = proc (u, req) -> do
   objsOut <- objectsSF objsOutput0 objs0 -< objsInput
   let PlayerOutput{..} = player objsOut
       playerPos = (playerX, playerY)
-      simEvent = fmap (\r -> SimEvent { interpretResponse = r, spellOutput = playerStdout }) replResponse
+      simEvent = fmap (\r -> mempty { interpretResponse = r }) replResponse
       FireboltOutputs fireboltStates = firebolts objsOut
   returnA -< (SimState
     {

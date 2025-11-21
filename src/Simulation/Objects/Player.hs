@@ -71,15 +71,15 @@ spellInterpreter
   (Monad m, Monoid (ObjsInput e m r))
   => SF m
     (Rational, Event SomeException, ObjInput (Player e m r), ObjsOutput e m r)
-    (ObjsInput e m r, Rational, Event r, Event Char)
+    (ObjsInput e m r, Rational, Event r)
 spellInterpreter = proc (r, e, o, objsOutput) -> do
-  (mana', result, objsInput, stdout) <- continuousInterpreter -< ((r, e, objsOutput), o)
-  returnA -< (objsInput, mana', result, stdout)
+  (mana', result, objsInput) <- continuousInterpreter -< ((r, e, objsOutput), o)
+  returnA -< (objsInput, mana', result)
   where
-    nothingInterpreter = arr (\(m, _, _) -> (m, NoEvent, mempty, NoEvent))
+    nothingInterpreter = arr (\(m, _, _) -> (m, NoEvent, mempty))
 
     -- Switch interpreter sessions in the background.
-    continuousInterpreter :: SF m ((Rational, Event SomeException, ObjsOutput e m r), ObjInput (Player e m r)) (Rational, Event r, ObjsInput e m r, Event Char)
+    continuousInterpreter :: SF m ((Rational, Event SomeException, ObjsOutput e m r), ObjInput (Player e m r)) (Rational, Event r, ObjsInput e m r)
     continuousInterpreter = proc ((cost, e, objsOutput), o) -> do
       isf <- newConstantInterpreter -< o
       -- Ignore external exception at time 0: it's meant for the code that is already
@@ -92,13 +92,13 @@ spellInterpreter = proc (r, e, o, objsOutput) -> do
     newConstantInterpreter = proc (PlayerInput{replInput, playerStdin}) -> do
       returnA -< maybe nothingInterpreter (\(s, collapse, collapseException) -> proc (r,e, objsOutput) -> do
         -- TODO: print stdout
-        (mana', result, objsInput, stdout) <- constantInterpreter s collapse collapseException -< (r, e, objsOutput, playerStdin)
+        (mana', result, objsInput, _) <- constantInterpreter s collapse collapseException -< (r, e, objsOutput, playerStdin)
         -- can't use 'edgeJust', because it has the surprising definition of 'edgeBy ... (Just undefined)' (???)
         -- so a Just output on the first tick would be discarded
         result' <- edgeBy
           (\case Nothing -> (\case Just a -> Just a; _ -> Nothing); _ -> const Nothing)
           Nothing -< result
-        returnA -< (mana', result', objsInput, stdout)
+        returnA -< (mana', result', objsInput)
         ) <$> replInput
 
     -- SF that can assume the Spell input is constant. Returns a cancellation
@@ -234,7 +234,7 @@ playerObj = loopPre initialPlayerMana $ proc ((playerIn, objsOutput), lastPlayer
   facingDirectionOverride <- arr (>>= \x -> guard (not (nearZero x)) >> pure (normalize x)) <<< hold Nothing -< overrideFacingDirection playerIn
   playerFacingDirection <- arr (uncurry fromMaybe) -< (defaultFacingDirection, facingDirectionOverride)
 
-  (objsInput, newMana, replResponse, stdout) <- spellInterpreter -< (lastPlayerMana, NoEvent, playerIn, objsOutput)
+  (objsInput, newMana, replResponse) <- spellInterpreter -< (lastPlayerMana, NoEvent, playerIn, objsOutput)
 
   playerMana <- iterFrom (\m _ t _ -> max 0 $ min 100 ((toRational t + playerManaRegenRate) + m)) initialPlayerMana -< newMana
 
@@ -243,7 +243,7 @@ playerObj = loopPre initialPlayerMana $ proc ((playerIn, objsOutput), lastPlayer
         , playerY = pos' ^. _y
         , playerMana
         , replResponse
-        , playerStdout = event mempty Seq.singleton stdout
+        , playerStdout = mempty
         , playerFacingDirection
         }
 
