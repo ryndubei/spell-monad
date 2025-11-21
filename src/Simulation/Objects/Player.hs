@@ -48,7 +48,7 @@ instance Semigroup (ObjInput (Player e m r)) where
     { simInput = simInput p1 <> simInput p2
     , replInput = replInput p2 <|> replInput p1
     , overrideFacingDirection = overrideFacingDirection p1 <|> overrideFacingDirection p2
-    , playerStdin =  Event $ event mempty id (playerStdin p1) <> event mempty id (playerStdin p2)
+    , playerStdin =  mergeBy (<>) (playerStdin p1) (playerStdin p2)
     }
 
 instance Monoid (ObjInput (Player e m r)) where
@@ -89,7 +89,7 @@ spellInterpreter = proc (r, e, o, objsOutput) -> do
           e' = (SomeException UserInterrupt <$ isf) <|> e
       rSwitch nothingInterpreter -< ((cost, e', objsOutput), isf')
 
-    newConstantInterpreter = proc PlayerInput{replInput, playerStdin} -> do
+    newConstantInterpreter = proc (PlayerInput{replInput, playerStdin}) -> do
       returnA -< maybe nothingInterpreter (\(s, collapse, collapseException) -> proc (r,e, objsOutput) -> do
         -- TODO: print stdout
         (mana', result, objsInput, _) <- constantInterpreter s collapse collapseException -< (r, e, objsOutput, playerStdin)
@@ -112,12 +112,10 @@ spellInterpreter = proc (r, e, o, objsOutput) -> do
           (Rational, Event SomeException, ObjsOutput e m r, Event (Seq Char))
           (Rational, Maybe r, ObjsInput e m r, Event Char)
     constantInterpreter s0 collapse eFromException = loopPre (s0, False, mempty) $
-      proc ((currentMana, e, objsOutput@Objects{player = PlayerOutput{playerX, playerY}}, playerStdin), (s, listeningStdin, stdin1)) -> do
-        playerVel <- derivative -< V2 playerX playerY
-
+      proc ((currentMana, e, objsOutput, playerStdin), (s, listeningStdin, stdin1)) -> do
         -- Only listen to stdin if we are blocked, otherwise discard the input
         let stdin2 = if listeningStdin then event mempty id playerStdin <> stdin1 else stdin1
-            m = flip runStateT (s, currentMana, stdin2) $ handleSpell objsOutput playerVel eFromException (eventToMaybe e)
+            m = flip runStateT (s, currentMana, stdin2) $ handleSpell objsOutput eFromException (eventToMaybe e)
 
         ((result, objsInput, stdout, blockedOnStdin), (s', newMana, newStdin)) <- arrM id -< lift m
 
@@ -134,7 +132,6 @@ handleSpell
      , s ~ SpellT e (MaybeT m `Product` ReaderT SomeException m) r
      )
   => ObjsOutput e m r
-  -> V -- ^ Player velocity.
   -> (SomeException -> e)
   -> Maybe SomeException
   -> StateT
@@ -149,7 +146,6 @@ handleSpell
       )
 handleSpell
   Objects{player = PlayerOutput{playerX, playerY, playerFacingDirection}}
-  playerVel
   eFromException
   toThrow
   = do
@@ -165,7 +161,7 @@ handleSpell
           if currentMana >= fireboltCost
             then do
               let s' = SpellT . join $ lift nxt''
-                  fireboltVel = playerVel ^+^ (fireboltSpeed *^ playerFacingDirection)
+                  fireboltVel = fireboltSpeed *^ playerFacingDirection
                   playerPos = V2 playerX playerY
                   fs = FireboltState { fireboltPos = playerPos, fireboltVel, fireboltRadius = 1, lifetime = 10 }
                   fin = FireboltsInput { killFirebolts = noEvent, spawnFirebolts = Event [fs] }
