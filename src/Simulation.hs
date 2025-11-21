@@ -17,11 +17,12 @@ import Untrusted
 import Spell.Eval
 import App.Thread.SF
 import Simulation.Objects.All
-import qualified Data.IntMap.Strict as IntMap
 import Simulation.Coordinates
+import Data.Foldable
+import Data.Function
 
 -- | Tells the UI thread how an object should be drawn.
-data ObjectIdentifier = Player deriving (Eq, Ord, Show, Generic)
+data ObjectIdentifier = Player | Firebolt deriving (Eq, Ord, Show, Generic)
 
 instance NFData ObjectIdentifier
 
@@ -66,13 +67,22 @@ simSF = proc (u, req) -> do
       playerIn = PlayerInput { replInput, simInput, overrideFacingDirection = NoEvent, playerStdin = NoEvent }
       objsInput = mempty { player = playerIn }
   objsOut <- objectsSF objsOutput0 objs0 -< objsInput
-  let PlayerOutput{..} = player objsOut 
+  let PlayerOutput{..} = player objsOut
       playerPos = (playerX, playerY)
       simEvent = fmap (\r -> mempty { interpretResponse = r }) replResponse
+      FireboltOutputs fireboltStates = firebolts objsOut
   returnA -< (SimState
     {
       -- square of diameter 2
-      sdf = \(x,y) -> let (x',y') = (x,y) ^-^ playerPos in (Player, max (abs x' - 1) (abs y' - 1))
+      sdf = \(x,y) ->
+        let (playerDx,playerDy) = (x,y) ^-^ playerPos
+            playerDistance = max (abs playerDx - 1) (abs playerDy - 1)
+            fireboltDistances = map
+              (\FireboltState{fireboltPos, fireboltRadius} ->
+                let fireboltDpos = V2 x y ^-^ fireboltPos
+                 in dot fireboltDpos fireboltDpos - fireboltRadius
+              ) fireboltStates
+         in minimumBy (compare `on` snd) $ (Player, playerDistance) : map (Firebolt,) fireboltDistances
     , cameraX = 0
     , cameraY = 0
     }, simEvent)
@@ -87,5 +97,5 @@ simSF = proc (u, req) -> do
         , replResponse = noEvent
         , playerFacingDirection = V2 1 0
         }
-      , firebolts = FireboltOutputs IntMap.empty
+      , firebolts = FireboltOutputs mempty
       }

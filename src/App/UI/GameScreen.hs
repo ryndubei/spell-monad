@@ -317,6 +317,7 @@ drawSimState attrmap (width, height) SimState{..} = raw displayedSimState
 
 objectIdToAttr :: ObjectIdentifier -> AttrName
 objectIdToAttr Player = attrName "Player"
+objectIdToAttr Firebolt = attrName "Firebolt"
 
 directInput :: Key -> [Modifier] -> Maybe UserInput
 directInput KUp _ = Just $ mempty { moveY = 1 }

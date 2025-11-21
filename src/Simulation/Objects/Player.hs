@@ -27,6 +27,7 @@ import Spell.Exception (SpellException(..))
 import Linear.Epsilon
 import Control.Monad.Trans.State.Strict
 import qualified Data.Sequence as Seq
+import qualified Data.Set as Set
 
 data instance ObjInput (Player e m r) = PlayerInput
   { simInput :: SimInput -- ^ Continuous user input
@@ -167,8 +168,8 @@ handleSpell
               let s' = SpellT . join $ lift nxt''
                   fireboltVel = playerVel ^+^ (fireboltSpeed *^ playerFacingDirection)
                   playerPos = V2 playerX playerY
-                  fs = FireboltState { fireboltPos = playerPos, fireboltVel, fireboltRadius = 1 }
-                  fin = FireboltsInput { killFirebolts = noEvent, spawnFirebolts = Event [fs] }
+                  fs = FireboltState { fireboltPos = playerPos, fireboltVel, fireboltRadius = 1, lifetime = 10 }
+                  fin = FireboltsInput { killFirebolts = noEvent, spawnFirebolts = Event $ Set.singleton fs }
               _1 .= s'
               _2 %= subtract fireboltCost
               pure (Nothing, mempty{firebolts = fin}, NoEvent, False)
@@ -222,7 +223,7 @@ fireboltCost :: Fractional a => a
 fireboltCost = 50
 
 fireboltSpeed :: Fractional a => a
-fireboltSpeed = 2
+fireboltSpeed = 1
 
 playerObj :: forall e m r. (Monad m, Monoid (ObjsInput e m r)) => Object e m r (Player e m r)
 playerObj = loopPre initialPlayerMana $ proc ((playerIn, objsOutput), lastPlayerMana) -> do
