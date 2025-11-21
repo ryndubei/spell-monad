@@ -13,6 +13,7 @@ import Control.Concurrent.Async
 import Control.Monad
 import Control.Exception
 import Control.Monad.Trans.Class
+import Control.Concurrent
 
 sampleSpell :: Untrusted (Spell String)
 sampleSpell = toUntrusted do
@@ -33,6 +34,7 @@ main = runEvalUntrusted do
   where
     go s@(SpellT (FreeT (Pair (MaybeT m) _))) = do
       liftIO $ putStrLn "begin"
+      liftIO $ threadDelay 1000000
       m' <- m
       liftIO $ putStrLn "evaled"
       case m' of
