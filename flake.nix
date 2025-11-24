@@ -5,6 +5,13 @@
       let pkgs = nixpkgs.legacyPackages.${system};
       in {
         devShells.default = with pkgs;
-          mkShell { buildInputs = [ ghc haskell-language-server ]; };
+          mkShell {
+            buildInputs = [
+              haskell.compiler.ghc912
+              (haskell-language-server.override {
+                supportedGhcVersions = [ "912" ];
+              })
+            ];
+          };
       });
 }
