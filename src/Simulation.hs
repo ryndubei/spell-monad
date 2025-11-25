@@ -93,6 +93,7 @@ simSF = proc (u, req) -> do
         { playerX = 0
         , playerY = 0
         , playerMana = 100
+        , playerMaxMana = 100
         , playerStdout = mempty
         , replResponse = noEvent
         , playerFacingDirection = V2 1 0

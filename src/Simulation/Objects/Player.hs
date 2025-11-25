@@ -37,7 +37,8 @@ data instance ObjInput (Player e m r) = PlayerInput
 data instance ObjOutput (Player e m r) = PlayerOutput
   { playerX :: !Double
   , playerY :: !Double
-  , playerMana :: !Rational
+  , playerMana :: !Double
+  , playerMaxMana :: !Double
   , playerStdout :: Seq Char
   , replResponse :: Event r
   , playerFacingDirection :: V
@@ -70,8 +71,8 @@ spellInterpreter
   :: forall e m r.
   (Monad m, Monoid (ObjsInput e m r))
   => SF m
-    (Rational, Event SomeException, ObjInput (Player e m r), ObjsOutput e m r)
-    (ObjsInput e m r, Rational, Event r, Event Char)
+    (Double, Event SomeException, ObjInput (Player e m r), ObjsOutput e m r)
+    (ObjsInput e m r, Double, Event r, Event Char)
 spellInterpreter = proc (r, e, o, objsOutput) -> do
   (mana', result, objsInput, stdout) <- continuousInterpreter -< ((r, e, objsOutput), o)
   returnA -< (objsInput, mana', result, stdout)
@@ -79,7 +80,7 @@ spellInterpreter = proc (r, e, o, objsOutput) -> do
     nothingInterpreter = arr (\(m, _, _) -> (m, NoEvent, mempty, NoEvent))
 
     -- Switch interpreter sessions in the background.
-    continuousInterpreter :: SF m ((Rational, Event SomeException, ObjsOutput e m r), ObjInput (Player e m r)) (Rational, Event r, ObjsInput e m r, Event Char)
+    continuousInterpreter :: SF m ((Double, Event SomeException, ObjsOutput e m r), ObjInput (Player e m r)) (Double, Event r, ObjsInput e m r, Event Char)
     continuousInterpreter = proc ((cost, e, objsOutput), o) -> do
       isf <- newConstantInterpreter -< o
       -- Ignore external exception at time 0: it's meant for the code that is already
@@ -109,8 +110,8 @@ spellInterpreter = proc (r, e, o, objsOutput) -> do
       -> (e -> r)
       -> (SomeException -> e)
       -> SF m
-          (Rational, Event SomeException, ObjsOutput e m r, Event (Seq Char))
-          (Rational, Maybe r, ObjsInput e m r, Event Char)
+          (Double, Event SomeException, ObjsOutput e m r, Event (Seq Char))
+          (Double, Maybe r, ObjsInput e m r, Event Char)
     constantInterpreter s0 collapse eFromException = loopPre (s0, False, mempty) $
       proc ((currentMana, e, objsOutput, playerStdin), (s, listeningStdin, stdin1)) -> do
         -- Only listen to stdin if we are blocked, otherwise discard the input
@@ -122,7 +123,7 @@ spellInterpreter = proc (r, e, o, objsOutput) -> do
         let result' = fmap (either collapse id) result
 
         returnA -< ((newMana, result', objsInput, stdout), (s', blockedOnStdin, newStdin))
-        
+
 -- | Small-step semantics for SpellT
 handleSpell
   :: forall e m r s.
@@ -136,7 +137,7 @@ handleSpell
   -> Maybe SomeException
   -> StateT
       ( s
-      , Rational -- current mana
+      , Double -- current mana
       , Seq Char -- stdin
       ) m
       ( Maybe (Either e r) -- final result
@@ -221,7 +222,7 @@ fireboltSpeed :: Fractional a => a
 fireboltSpeed = 10
 
 playerObj :: forall e m r. (Monad m, Monoid (ObjsInput e m r)) => Object e m r (Player e m r)
-playerObj = loopPre initialPlayerMana $ proc ((playerIn, objsOutput), lastPlayerMana) -> do
+playerObj = loopPre playerMaxMana $ proc ((playerIn, objsOutput), lastPlayerMana) -> do
 
   pos' <- (fix $ \k (pos1, vy) ->
     switch (generaliseSF $ fallingMovement pos1 vy) (\pos2 -> switch (generaliseSF $ groundedMovement pos2) k))
@@ -234,22 +235,27 @@ playerObj = loopPre initialPlayerMana $ proc ((playerIn, objsOutput), lastPlayer
   facingDirectionOverride <- arr (>>= \x -> guard (not (nearZero x)) >> pure (normalize x)) <<< hold Nothing -< overrideFacingDirection playerIn
   playerFacingDirection <- arr (uncurry fromMaybe) -< (defaultFacingDirection, facingDirectionOverride)
 
-  (objsInput, newMana, replResponse, stdout) <- spellInterpreter -< (lastPlayerMana, NoEvent, playerIn, objsOutput)
+  -- Player mana is regenerated once a second at the regen rate (instead of continuously)
+  -- Can't get more sophisticated than this unless I add a MonadFix constraint,
+  -- or rewrite spellInterpreter to rely less on current mana state.
+  manaRegenEvent <- repeatedly 1 () -< ()
+  let newMana1 = event lastPlayerMana id $ min playerMaxMana (lastPlayerMana + playerManaRegenRate) <$ manaRegenEvent
 
-  playerMana <- iterFrom (\m _ t _ -> max 0 $ min 100 ((toRational t + playerManaRegenRate) + m)) initialPlayerMana -< newMana
+  (objsInput, newMana2, replResponse, stdout) <- spellInterpreter -< (newMana1, NoEvent, playerIn, objsOutput)
 
   let playerOutput = PlayerOutput
         { playerX = pos' ^. _x
         , playerY = pos' ^. _y
-        , playerMana
+        , playerMana = newMana2
+        , playerMaxMana
         , replResponse
         , playerStdout = event mempty Seq.singleton stdout
         , playerFacingDirection
         }
 
-  returnA -< ((playerOutput, objsInput), playerMana)
+  returnA -< ((playerOutput, objsInput), newMana2)
   where
-    initialPlayerMana = 100
+    playerMaxMana = 100
 
     groundedMovement :: V -> SF Identity (ObjInput (Player e m r)) (V, Event (V, Double))
     groundedMovement (V2 x0 _) = proc (PlayerInput{simInput = simInput@SimInput{simJump}}) -> do
