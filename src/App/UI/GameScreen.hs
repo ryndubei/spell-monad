@@ -12,7 +12,8 @@ import Simulation
 import Input
 import Brick
 import Control.Lens
-import Graphics.Vty (defAttr, Vty (outputIface), displayBounds)
+import Graphics.Vty (Vty (outputIface), displayBounds)
+import Graphics.Vty.Attributes
 import qualified Control.Lens as L
 import Brick.Widgets.Border
 import Brick.Widgets.Center
@@ -110,7 +111,10 @@ theapp rth c = App {..}
 
     gameWindow s = clickable GameWindow $ drawSimState (appAttrMap s) (s ^. windowSize) (s ^. simState)
 
-    appAttrMap _ = attrMap defAttr []
+    appAttrMap _ = attrMap defAttr
+      [ (attrName "Player", withForeColor defAttr brightBlue)
+      , (attrName "Firebolt", withForeColor defAttr brightYellow)
+      ]
 
     -- TODO: replace with dialogue-based exit
     appHandleEvent (VtyEvent (EvKey (KChar 'q') _)) = do
