@@ -1,4 +1,5 @@
 {-# OPTIONS_GHC -Wno-orphans #-}
+{-# LANGUAGE BlockArguments #-}
 module Simulation.Objects.Firebolts (FireboltState(..), ObjInput(..), ObjOutput(..), fireboltsObj) where
 
 import Simulation.Objects
@@ -24,21 +25,24 @@ instance Monoid (ObjInput FireboltsObject) where
   mempty = FireboltsInput NoEvent NoEvent
 
 fireboltsObj :: forall e m r. (Monad m, Monoid (ObjsInput e m r)) => Object e m r FireboltsObject
-fireboltsObj = dpSwitchB mempty
-  (proc ((FireboltsInput{ spawnFirebolts, killFirebolts }, _), states) -> do
-    let lifetimeKills = IntMap.keysSet $ IntMap.filter ((<= 0) . lifetime) states
-        kills = mergeBy (<>) killFirebolts $ if IntSet.null lifetimeKills then NoEvent else Event lifetimeKills
-        e = mergeBy (\x y -> (fst x, snd y)) (fmap (,mempty) spawnFirebolts) (fmap (mempty,) kills)
-    returnA -< e
-  )
-  (\sfs (spawns, kills) ->
-    let sfs' = sfs `IntMap.withoutKeys` kills -- kill first
-        k = maybe 0 ((+ 1) . fst) $ IntMap.lookupMax sfs'
-        newObjs = map ((arr (const ()) >>>) . generaliseSF <$> fireboltObj) $ filter ((>0) . lifetime) spawns
-        sfs'' = IntMap.fromList (zip [k..] newObjs) <> sfs' -- then spawn
-     in par (\x ys -> fmap (x,) ys) sfs''
-  )
-  >>> arr (\x -> (FireboltOutputs x, mempty))
+fireboltsObj = generaliseSF $ proc (FireboltsInput{spawnFirebolts, killFirebolts}, _) -> do
+  let spawnSFs = map (generaliseSF . fireboltObj) (event mempty id spawnFirebolts)
+      spawns im =
+        let is = IntMap.keysSet im
+            -- TODO: track next free id explicitly (like IL from Yampa Arcade)
+            -- That way, keys can be assumed to be unique.
+            k = if IntSet.null is then 0 else IntSet.findMax is + 1
+         in IntMap.fromList (zip [k..] spawnSFs) <> im
+      spawns' = gate (Event spawns) (isEvent spawnFirebolts)
+  rec
+    -- Kill firebolts with expired lifetimes
+    -- (on the next tick, so firebolts with lifetime = 0 will exist for an infinitesimal time)
+    dieFirebolts <- arr (IntMap.keysSet . IntMap.filter \FireboltState{lifetime} -> lifetime >= 10) <<< iPre IntMap.empty -< out
+    let kills = fmap (flip IntMap.withoutKeys) killFirebolts
+        deaths = gate (Event (`IntMap.withoutKeys` dieFirebolts)) (not $ IntSet.null dieFirebolts)
+        endo = mergeBy (.) spawns' (mergeBy (.) deaths kills) -- first kill, then spawn
+    out <- rpSwitchB IntMap.empty -< ((), endo)
+  returnA -< (FireboltOutputs out, mempty)
 
 fireboltObj :: FireboltState -> SF Identity () FireboltState
 fireboltObj s0 = proc () -> do
