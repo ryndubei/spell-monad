@@ -37,7 +37,7 @@ fireboltsObj = generaliseSF $ proc (FireboltsInput{spawnFirebolts, killFirebolts
   rec
     -- Kill firebolts with expired lifetimes
     -- (on the next tick, so firebolts with lifetime = 0 will exist for an infinitesimal time)
-    dieFirebolts <- arr (IntMap.keysSet . IntMap.filter \FireboltState{lifetime} -> lifetime >= 10) <<< iPre IntMap.empty -< out
+    dieFirebolts <- arr (IntMap.keysSet . IntMap.filter \FireboltState{lifetime} -> lifetime <= 0) <<< iPre IntMap.empty -< out
     let kills = fmap (flip IntMap.withoutKeys) killFirebolts
         deaths = gate (Event (`IntMap.withoutKeys` dieFirebolts)) (not $ IntSet.null dieFirebolts)
         endo = mergeBy (.) spawns' (mergeBy (.) deaths kills) -- first kill, then spawn
