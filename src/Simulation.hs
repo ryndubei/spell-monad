@@ -68,7 +68,8 @@ simSF = proc (u, req) -> do
   objsOut <- objectsSF objsOutput0 objs0 -< objsInput
   let PlayerOutput{..} = player objsOut
       playerPos = (playerX, playerY)
-      simEvent = fmap (\r -> SimEvent { interpretResponse = r, spellOutput = playerStdout }) replResponse
+      simEvent1 = fmap (\r -> mempty { interpretResponse = r }) replResponse
+      simEvent2 = gate (Event $ mempty { spellOutput = playerStdout }) (not $ null playerStdout)
       FireboltOutputs fireboltStates = firebolts objsOut
   returnA -< (SimState
     {
@@ -84,7 +85,7 @@ simSF = proc (u, req) -> do
          in minimumBy (compare `on` snd) $ (Player, playerDistance) : map (Firebolt,) fireboltDistances
     , cameraX = 0
     , cameraY = 0
-    }, simEvent)
+    }, mergeBy (<>) simEvent1 simEvent2)
   where
     objs0 = Objects { player = Identity (PlayerObject playerObj), firebolts = Identity (FireboltsObject fireboltsObj) }
     objsOutput0 = Objects
