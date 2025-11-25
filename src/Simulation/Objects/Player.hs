@@ -218,7 +218,7 @@ fireboltCost :: Fractional a => a
 fireboltCost = 50
 
 fireboltSpeed :: Fractional a => a
-fireboltSpeed = 1
+fireboltSpeed = 10
 
 playerObj :: forall e m r. (Monad m, Monoid (ObjsInput e m r)) => Object e m r (Player e m r)
 playerObj = loopPre initialPlayerMana $ proc ((playerIn, objsOutput), lastPlayerMana) -> do
