@@ -91,7 +91,6 @@ spellInterpreter = proc (r, e, o, objsOutput) -> do
 
     newConstantInterpreter = proc replInput -> do
       returnA -< maybe nothingInterpreter (\(s, collapse, collapseException) -> proc (r,e,objsOutput,playerStdin) -> do
-        -- TODO: print stdout
         (mana', result, objsInput, stdout) <- constantInterpreter s collapse collapseException -< (r, e, objsOutput, playerStdin)
         -- can't use 'edgeJust', because it has the surprising definition of 'edgeBy ... (Just undefined)' (???)
         -- so a Just output on the first tick would be discarded
