@@ -1,4 +1,6 @@
 {-# OPTIONS_GHC -Werror #-} -- eliminate possibilities for being out of sync with the actual types
+{-# LANGUAGE QuantifiedConstraints #-}
+{-# LANGUAGE BlockArguments #-}
 
 -- | Some ad-hoc dependent sums for existing types
 module DependentSums (DSum(..), Tag(..)) where
@@ -9,6 +11,7 @@ import Data.Functor.Product
 import Data.Functor.Identity
 import Control.DeepSeq
 import Data.Kind
+import Control.Monad.Trans.Free
 
 -- TODO: auto create instances via TH/generics
 
@@ -71,3 +74,16 @@ instance DSum (Maybe a) where
 instance NFData (Tag (Maybe a) b) where
   rnf TJust = ()
   rnf TNothing = ()
+
+instance DSum (f b) => DSum (FreeF f a b) where
+  data Tag (FreeF f a b) c where
+    TPure :: Tag (FreeF f a b) a
+    TFree :: Tag (f b) x -> Tag (FreeF f a b) x
+  toDSum (Pure x) = Some $ Pair (Identity x) TPure
+  toDSum (Free x) = withSome (toDSum x) \(Pair (Identity x') t) -> Some $ Pair (Identity x') (TFree t)
+  fromDSum TPure a = Pure a
+  fromDSum (TFree t) a = Free (fromDSum t a)
+
+instance NFData (Tag (f b) c) => NFData (Tag (FreeF f a b) c) where
+  rnf TPure = ()
+  rnf (TFree t) = rnf t
