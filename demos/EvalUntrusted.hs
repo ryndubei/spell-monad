@@ -58,15 +58,10 @@ main = runEvalUntrusted do
                   go (SpellT . join $ lift next)
                 Catch {} -> do
                   liftIO . putStrLn $ "Catch (unimpl)"
-                  go (liftF $ Throw (pure $ pure $ SomeException $ ErrorCall "catch unimplemented" ))
-                Throw (Pair (MaybeT e) _) -> do
+                  go (liftF $ Throw (pure $ SomeException $ ErrorCall "catch unimplemented" ))
+                Throw e -> do
                   liftIO . putStrLn $ "Throw"
-                  e' <- e
-                  case e' of
-                    Just e'' -> pure (fmap displayException e'')
-                    Nothing -> do
-                      liftIO $ putStrLn "polling exception again"
-                      go s
+                  pure (fmap displayException e)
                 PutChar c next -> do
                   liftIO . putStrLn $ "PutChar " ++ show c
                   go (SpellT . join $ lift next)

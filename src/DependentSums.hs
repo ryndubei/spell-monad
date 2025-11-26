@@ -22,7 +22,7 @@ instance DSum (SpellF e m next) where
     TFirebolt :: Tag (SpellF e m next) (m next)
     TFace :: Tag (SpellF e m next) (Double, Double, m next)
     TCatch :: Tag (SpellF e m next) (m (SpellT e m a), m (e -> SpellT e m a), m (a -> next))
-    TThrow :: Tag (SpellF e m next) (m e)
+    TThrow :: Tag (SpellF e m next) e
     TPutChar :: Tag (SpellF e m next) (Char, m next)
     TGetChar :: Tag (SpellF e m next) (m (Char -> next))
   toDSum (Firebolt next) = Some $ Pair (Identity next) TFirebolt

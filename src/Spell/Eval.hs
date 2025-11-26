@@ -6,7 +6,7 @@
 {-# HLINT ignore "Use =<<" #-}
 module Spell.Eval (evalSpellUntrusted, runEvalUntrusted, EvalT, untrustedAllocationLimit) where
 
-import Spell (SpellT(..), SpellF(..), mapSpellException, mapSpellFException, Spell(..), generaliseSpell, SomeSpellException(..), hoistSpellT, joinSpellT)
+import Spell (SpellT(..), SpellF(..), mapSpellException, Spell(..), generaliseSpell, hoistSpellT, joinSpellT, spellExceptionFromException, spellExceptionToException)
 import Data.Functor.Identity
 import Control.Monad.Trans.Free
 import Control.DeepSeq
@@ -49,9 +49,9 @@ evalSpellUntrusted :: forall a.
       (Untrusted a)
 evalSpellUntrusted =
     joinSpellT
-    . hoistSpellT (\(Identity a) -> SpellT $ FreeT $ Pair (pure $ Pure a) (ReaderT \e -> pure (Free $ Throw (pure $ pure e))))
+    . hoistSpellT (\(Identity a) -> SpellT $ FreeT $ Pair (pure $ Pure a) (ReaderT \e -> pure (Free $ Throw (pure e))))
     . evalSpell untrustedCommSome (Identity . unsafeFromUntrusted)
-    . mapSpellException (pure . SomeException) (\(SomeException e) -> pure $ SomeSpellException e)
+    . mapSpellException spellExceptionToException spellExceptionFromException
     . join
     . lift
     . fmap generaliseSpell
@@ -99,9 +99,9 @@ evalSpell uCommSome f (SpellT (FreeT m)) = do
     pullEither' = pullEither . fmap toDSum
 
     pullSpellF' :: forall next. u (SpellF e u next) -> n (SpellF (u e) n (u next))
-    pullSpellF' = pullSpellF . fmap (toDSum . mapSpellFException (pure . pure) id)
+    pullSpellF' = pullSpellF . fmap toDSum
 
-    pullSpellF :: forall next. u (Some (Product Identity (Tag (SpellF (u e) u next)))) -> n (SpellF (u e) n (u next))
+    pullSpellF :: forall next. u (Some (Product Identity (Tag (SpellF e u next)))) -> n (SpellF (u e) n (u next))
     pullSpellF u0 = do
       let u1 = uCommSome u0
       withSome u1 \(Compose u2) -> do
@@ -116,16 +116,14 @@ evalSpell uCommSome f (SpellT (FreeT m)) = do
             let next = u >>= view _3
             pure $ Face a b (pure next)
           TThrow -> do
-            let e = join $ join u
-            pure . Throw $ pure e
+            pure $ Throw u
           TCatch -> do
-            let expr = mapSpellException (pure . join) (pure . pure) . evalSpell uCommSome f . join . lift $ u >>= view _1
+            let expr = evalSpell uCommSome f . join . lift $ u >>= view _1
                 h e =
-                  mapSpellException (pure . join) (pure . pure)
-                  . evalSpell uCommSome f
+                  evalSpell uCommSome f
                   . join
                   . lift
-                  $ (<*> pure e) (u >>= view _2)
+                  $ (<*> e) (u >>= view _2)
                 next = (<*>) (u >>= view _3)
             pure $ Catch (pure expr) (pure h) (pure next)
           TPutChar -> do

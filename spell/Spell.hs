@@ -36,6 +36,7 @@ import Data.Kind
 import Control.Monad
 import Control.Category ((>>>))
 import Control.Monad.Trans.Except
+import Data.Functor
 
 -- | The Spell monad transformer, allowing interleaved side effects. For use by
 -- compiled code. Should not be exposed to the user.
@@ -80,7 +81,7 @@ hoistSpellF g f = \case
     let expr' = f (fmap g expr)
         h' = f $ fmap (fmap g) h
     in Catch expr' h' (f next)
-  Throw e -> Throw (f e)
+  Throw e -> Throw e
   PutChar c next -> PutChar c (f next)
   GetChar next -> GetChar (f next)
 
@@ -93,7 +94,7 @@ joinSpellT = unSpellT >>> iterT \case
         h' e = h >>= joinSpellT . ($ e)
         next' a = next >>= ($ a)
      in wrap (Catch (pure expr') (pure h') (pure next'))
-  Throw e -> e >>= liftF . Throw . pure
+  Throw e -> liftF (Throw e)
   PutChar c next -> wrap (PutChar c (pure $ join next))
   GetChar next -> wrap (GetChar (pure $ \c -> next >>= \n -> n c))
 
@@ -101,19 +102,25 @@ spellTCollapseExceptT :: Monad m => SpellT e (ExceptT e m) a -> SpellT e m a
 spellTCollapseExceptT = hoistSpellT (\(ExceptT m) -> do
   m' <- lift m
   case m' of
-    Left e -> liftF (Throw (pure e))
+    Left e -> liftF (Throw e)
     Right r -> pure r
   ) >>> joinSpellT
 
--- | The functions should induce an isomorphism (m e <-> m e') to preserve throw/catch behaviour.
-mapSpellException :: Monad m => (e -> m e') -> (e' -> m e) -> SpellT e m a -> SpellT e' m a
+-- | Map the exception type into some larger exception type.
+-- To preserve throw/catch behaviour, the second mapping should be the left
+-- inverse of the first.
+mapSpellException :: Monad m => (e -> e') -> (e' -> Maybe e) -> SpellT e m a -> SpellT e' m a
 mapSpellException f g = SpellT . transFreeT (mapSpellFException f g) . unSpellT
 
-mapSpellFException :: Monad m => (e -> m e') -> (e' -> m e) -> SpellF e m a -> SpellF e' m a
+mapSpellFException :: Monad m => (e -> e') -> (e' -> Maybe e) -> SpellF e m a -> SpellF e' m a
 -- TODO: vaguely resembles functor adjointness, maybe could generalise
-mapSpellFException f _ (Throw e) = Throw (e >>= f)
+mapSpellFException f _ (Throw e) = Throw (f e)
 mapSpellFException f g (Catch expr h next) =
-  Catch (fmap (mapSpellException f g) expr) (fmap (\h' -> fmap lift g >=> mapSpellException f g . h') h) next
+  let expr' = fmap (mapSpellException f g) expr
+      h' = h <&> \h1 e' -> case g e' of
+        Nothing -> liftF (Throw e')
+        Just e -> mapSpellException f g (h1 e)
+   in Catch expr' h' next
 mapSpellFException _ _ (Firebolt a) = Firebolt a
 mapSpellFException _ _ (Face a b next) = Face a b next
 mapSpellFException _ _ (PutChar c next) = PutChar c next
@@ -125,10 +132,9 @@ data SpellF e (m :: Type -> Type) next
   = Firebolt (m next)
   | Face !Double !Double (m next)
   | forall a. Catch (m (SpellT e m a)) (m (e -> SpellT e m a)) (m (a -> next))
-  | Throw (m e)
-  -- ^ we can't just do throwSpell = liftF . throw because imprecise exceptions
-  -- have different semantics from precise exceptions. Throwing precise
-  -- exceptions has to be a dedicated side effect.
+  | Throw e
+  -- ^ exception to the rule: not annotated with 'm' because this is essentially
+  -- an output type, isomorphic to the 'Pure' constructor of FreeF.
   | PutChar !Char (m next)
   | GetChar (m (Char -> next))
 
@@ -167,7 +173,7 @@ liftSpellF :: SpellF SomeSpellException Identity a -> Spell a
 liftSpellF = coerce . liftF @_ @(FreeT (SpellF SomeSpellException Identity) Identity)
 
 throwSpell :: Exception e => e -> Spell a
-throwSpell = liftSpellF . Throw . Identity . SomeSpellException
+throwSpell = liftSpellF . Throw . SomeSpellException
 
 catch :: forall e a. Exception e => Spell a -> (e -> Spell a) -> Spell a
 catch s (h :: e -> Spell a) =

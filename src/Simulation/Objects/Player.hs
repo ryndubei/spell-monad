@@ -161,28 +161,12 @@ handleSpell
               _2 %= subtract fireboltCost
               pure (Nothing, mempty{firebolts = fin}, NoEvent, False)
             else do
-              let enxt = liftF (Throw . pure $ eFromException (SomeException OutOfSideEffects))
+              let enxt = liftF (Throw $ eFromException (SomeException OutOfSideEffects))
               _1 .= enxt
               pure (Nothing, mempty, NoEvent, False)
-        -- TODO: throw doesn't really need to be wrapped in 'm':
-        --
-        -- it would make sense to have an isomorphism to ExceptT e (SpellF ... r)
-        -- which in turn should give an isomorphism ExceptT r (SpellF ... e)
-        -- and the 'r' in FreeT (Pure r) is not wrapped in 'm'.
-        --
-        -- (explained alternatively: evalSpell already wraps the exceptions in 'u')
-        Throw (Pair (MaybeT nxt'e) canc'e) -> do
-          nxt''e <- lift nxt'e
-          case nxt''e of
-            Just e ->
-              -- TODO: implement catch
-              pure (Just (Left e), mempty, NoEvent, False)
-            Nothing -> do
-              -- update outer cancellation function, keep everything else the same
-              let s' = SpellT (FreeT (Pair (MaybeT nxt) (fmap (Free . Throw . pure) canc'e)))
-              _1 .= s'
-              -- keep trying again until the exception to be thrown is evaluated
-              pure (Nothing, mempty, NoEvent, False)
+        Throw e ->
+          -- TODO: implement catch
+          pure (Just (Left e), mempty, NoEvent, False)
         Catch {} -> pure (Nothing, mempty, NoEvent, False) -- TODO: implement catch
         PutChar c nxt'c -> do
           let s' = SpellT $ join $ lift nxt'c
