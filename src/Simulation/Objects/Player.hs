@@ -191,7 +191,7 @@ handleSpell
           pure (Nothing, Objects{player = pin, firebolts = mempty}, NoEvent, False)
 
 fireboltCost :: Fractional a => a
-fireboltCost = 50
+fireboltCost = 10
 
 fireboltSpeed :: Fractional a => a
 fireboltSpeed = 10
