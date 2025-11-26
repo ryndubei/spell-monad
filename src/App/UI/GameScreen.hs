@@ -32,12 +32,15 @@ import Control.Monad.State.Strict
 import Data.Char
 import Control.Applicative
 import Data.Maybe
+import Brick.Widgets.ProgressBar (progressBar, progressCompleteAttr, progressIncompleteAttr)
+import Control.Monad.Reader
 
 data Name
   = TerminalCursor
   | TerminalInputLine
   | TerminalViewport
   | GameWindow
+  | StatusBars
   | LogViewport
   deriving (Eq, Ord, Show)
 
@@ -106,14 +109,24 @@ theapp rth c = App {..}
              . clickable TerminalViewport
              . viewport TerminalViewport Vertical
              $ drawTerminal TerminalCursor (s ^. term)
-      , gameWindow s
+      , gameWindow s <=> hBorder <=> statusBars s
       ]
 
-    gameWindow s = clickable GameWindow $ drawSimState (appAttrMap s) (s ^. windowSize) (s ^. simState)
+    statusBars s =
+      let SimState{playerMana, playerMaxMana} = s ^. simState
+          manaBar = (clamp 0 1 $ realToFrac playerMana / realToFrac playerMaxMana)
+       in clickable StatusBars
+        $ padBottom (Pad 1)
+        $ hLimitPercent 30
+        $ progressBar (Just "Side effects") manaBar
+    
+    gameWindow s = clickable GameWindow $ drawSimState (s ^. simState)
 
     appAttrMap _ = attrMap defAttr
-      [ (attrName "Player", withForeColor defAttr brightBlue)
+      [ (attrName "Player", withForeColor defAttr cyan)
       , (attrName "Firebolt", withForeColor defAttr brightYellow)
+      , (progressCompleteAttr, withBackColor (withForeColor defAttr black) cyan)
+      , (progressIncompleteAttr, withBackColor (withForeColor defAttr white) brightBlack)
       ]
 
     -- TODO: replace with dialogue-based exit
@@ -173,6 +186,10 @@ theapp rth c = App {..}
       Brick.zoom term $ forceVisibleInputLine .= True
       terminalFocus .= VisibleFocused
     appHandleEvent (MouseDown GameWindow BLeft _ _) = do
+      fc <- use terminalFocus
+      when (fc == VisibleFocused) $
+        terminalFocus .= VisibleUnfocused
+    appHandleEvent (MouseDown StatusBars BLeft _ _) = do
       fc <- use terminalFocus
       when (fc == VisibleFocused) $
         terminalFocus .= VisibleUnfocused
@@ -288,36 +305,50 @@ unblockTerm = do
   prompt .= unblockedPrompt
   blocked .= False
 
-drawSimState :: AttrMap -> DisplayRegion -> SimState -> Widget Name
-drawSimState attrmap (width, height) SimState{..} = raw displayedSimState
+drawSimState :: SimState -> Widget Name
+drawSimState SimState{..} =
+  Widget
+    { hSize = Greedy
+    , vSize = Greedy
+    , render = do
+        ctx <- ask
+        let height = ctx ^. availHeightL
+            width = ctx ^. availWidthL
+            attrmap = ctx ^. ctxAttrMapL
+        pure $ emptyResult { image = simStateImage attrmap width height }
+    }
   where
-    ys :: Vector Double
-    ys = V.map ((+ cameraY) . negate . fromIntegral) $ V.enumFromN (- (height `div` 2)) height
+    simStateImage attrmap width height =
+      let
+        ys :: Vector Double
+        ys = V.map ((+ cameraY) . negate . fromIntegral) $ V.enumFromN (- (height `div` 2)) height
 
-    xs :: V.Vector Double
-    xs = V.map ((+ cameraX) . (/ 2) . fromIntegral) $ V.enumFromN (- (width `div` 2)) width
+        xs :: V.Vector Double
+        xs = V.map ((+ cameraX) . (/ 2) . fromIntegral) $ V.enumFromN (- (width `div` 2)) width
 
-    dists :: V.Vector (V.Vector (ObjectIdentifier, Double))
-    dists = flip V.map ys \y -> flip V.map xs \x -> sdf (x,y)
+        dists :: V.Vector (V.Vector (ObjectIdentifier, Double))
+        dists = flip V.map ys \y -> flip V.map xs \x -> sdf (x,y)
 
-    -- ObjectIdentifiers together with the string lengths to draw
-    lineSliceLengths :: [V.Vector (Maybe ObjectIdentifier, Int)]
-    lineSliceLengths = flip (parMap rdeepseq) (V.toList dists) $ V.unfoldrN width \row ->
-      let u = V.uncons row
-      in case u of
-        Just (hrow, trow) ->
-          let toDraw (oid, d) = if d < 0.5 then Just oid else Nothing
-              (lrow, rrow) = V.span (\t -> toDraw t == toDraw hrow) trow
-           in Just ((toDraw hrow, 1 + length lrow), rrow)
-        Nothing -> Nothing
+        -- ObjectIdentifiers together with the string lengths to draw
+        lineSliceLengths :: [V.Vector (Maybe ObjectIdentifier, Int)]
+        lineSliceLengths = flip (parMap rdeepseq) (V.toList dists) $ V.unfoldrN width \row ->
+          let u = V.uncons row
+          in case u of
+            Just (hrow, trow) ->
+              let toDraw (oid, d) = if d < 0.5 then Just oid else Nothing
+                  (lrow, rrow) = V.span (\t -> toDraw t == toDraw hrow) trow
+               in Just ((toDraw hrow, 1 + length lrow), rrow)
+            Nothing -> Nothing
 
-    lineSlice :: Maybe ObjectIdentifier -> Int -> Image
-    -- cannot simply do "translateX len mempty". I don't know why.
-    lineSlice Nothing len = translateX len $ text' defAttr mempty
-    lineSlice (Just oid) len = text' (attrMapLookup (objectIdToAttr oid) attrmap) $ T.replicate len "█"
+        lineSlice :: Maybe ObjectIdentifier -> Int -> Image
+        -- cannot simply do "translateX len mempty". I don't know why.
+        lineSlice Nothing len = translateX len $ text' defAttr mempty
+        lineSlice (Just oid) len = text' (attrMapLookup (objectIdToAttr oid) attrmap) $ T.replicate len "█"
 
-    displayedSimState :: Image
-    displayedSimState = foldr' vertJoin mempty $ map (V.foldr' horizJoin mempty . V.map (uncurry lineSlice)) lineSliceLengths
+        displayedSimState :: Image
+        displayedSimState = foldr' vertJoin mempty $ map (V.foldr' horizJoin mempty . V.map (uncurry lineSlice)) lineSliceLengths
+
+       in displayedSimState
 
 objectIdToAttr :: ObjectIdentifier -> AttrName
 objectIdToAttr Player = attrName "Player"

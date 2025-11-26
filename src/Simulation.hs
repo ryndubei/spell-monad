@@ -32,6 +32,8 @@ data SimState = SimState
   { sdf :: (Double, Double) -> (ObjectIdentifier, Double)
   , cameraX :: !Double
   , cameraY :: !Double
+  , playerMana :: !Double
+  , playerMaxMana :: !Double
   }
 
 data SimEvent = SimEvent
@@ -102,6 +104,8 @@ simSF = arr (event mempty id) >>> proc SFInput{gameInput = u, termStdin = player
          in minimumBy (compare `on` snd) $ (Player, playerDistance) : map (Firebolt,) fireboltDistances
     , cameraX = 0
     , cameraY = 0
+    , playerMana
+    , playerMaxMana
     }, mergeBy (<>) simEvent1 simEvent2)
   where
     objs0 = Objects { player = Identity (PlayerObject playerObj), firebolts = Identity (FireboltsObject fireboltsObj) }
