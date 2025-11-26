@@ -2,6 +2,7 @@
 {-# LANGUAGE DerivingVia #-}
 {-# LANGUAGE BlockArguments #-}
 {-# LANGUAGE PartialTypeSignatures #-}
+{-# LANGUAGE ApplicativeDo #-}
 {-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
 {-# HLINT ignore "Use =<<" #-}
 module Spell.Eval (evalSpellUntrusted, runEvalUntrusted, EvalT, untrustedAllocationLimit) where
@@ -91,9 +92,9 @@ evalSpell uCommSome f (SpellT (FreeT m)) = do
             uargs = fmap fst u3
             utag = fmap snd u3
         tag <- f utag
-        case tag of
-          TLeft -> pure $ Left uargs
-          TRight -> pure $ Right uargs
+        pure $ case tag of
+          TLeft -> Left uargs
+          TRight -> Right uargs
 
     pullEither' :: forall x y. u (Either x y) -> n (Either (u x) (u y))
     pullEither' = pullEither . fmap toDSum
@@ -108,16 +109,11 @@ evalSpell uCommSome f (SpellT (FreeT m)) = do
         let u3 = fmap (\(Pair (Identity a) b) -> (a,b)) u2
             u = fmap fst u3
         tag <- f $ fmap snd u3
-        case tag of
-          TFirebolt -> pure $ Firebolt (pure (join u))
-          TFace -> do
-            a <- f $ fmap (view _1) u
-            b <- f $ fmap (view _2) u
-            let next = u >>= view _3
-            pure $ Face a b (pure next)
-          TThrow -> do
-            pure $ Throw u
-          TCatch -> do
+        pure $ case tag of
+          TFirebolt -> Firebolt (pure (join u))
+          TFace a b -> Face a b (pure (join u))
+          TThrow -> Throw u
+          TCatch ->
             let expr = evalSpell uCommSome f . join . lift $ u >>= view _1
                 h e =
                   evalSpell uCommSome f
@@ -125,11 +121,8 @@ evalSpell uCommSome f (SpellT (FreeT m)) = do
                   . lift
                   $ (<*> e) (u >>= view _2)
                 next = (<*>) (u >>= view _3)
-            pure $ Catch (pure expr) (pure h) (pure next)
-          TPutChar -> do
-            c <- f $ fmap (view _1) u
-            let next = u >>= view _2
-            pure $ PutChar c (pure next)
-          TGetChar -> do
+             in Catch (pure expr) (pure h) (pure next)
+          TPutChar c -> PutChar c (pure (join u))
+          TGetChar ->
             let next = (<*>) (join u)
-            pure $ GetChar (pure $ next . pure)
+             in GetChar (pure $ next . pure)
