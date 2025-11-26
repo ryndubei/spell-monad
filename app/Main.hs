@@ -17,14 +17,11 @@ import Control.Concurrent.Async
 import Control.Monad.Cont
 import Control.Monad.Trans
 import App.UI.LoadingScreen
-import Control.Arrow
-import Data.These
-import Data.Semigroup
-import Data.Bifunctor (bimap)
 import FRP.Yampa
 import Control.Monad.Fix
 import Data.Function
 import Spell.Eval
+import qualified Data.Sequence as Seq
 
 -- TODO: exception hierarchy
 
@@ -68,7 +65,7 @@ runGame th = evalContT do
 
   lift $ withLoadingScreen th $ atomically $ replStatus rth >>= check . not . sameStatus Initialising
 
-  sfth <- ContT $ withSFThread runEvalUntrusted simSF'
+  sfth <- ContT $ withSFThread runEvalUntrusted simSF
   -- Assumption: sfth does not block indefinitely until input is given
   -- (ideally does not block at all on first output)
   s0 <- lift . atomically $ takeSFThread sfth
@@ -91,8 +88,8 @@ runGame th = evalContT do
   brickToSfTh <- ContT . withAsync . forever $ atomically do
     aui <- takeBrickThread bth
     case aui of
-      GameInput ui -> sendSFThread sfth (This ui)
-      TermStdin _ -> pure () -- TODO
+      GameInput ui -> sendSFThread sfth (mempty { gameInput = Event ui } )
+      TermStdin c -> sendSFThread sfth (mempty { termStdin = Event $ Seq.singleton c })
   lift $ link brickToSfTh
 
   -- tail-recursive so fix should be ok
@@ -104,18 +101,18 @@ runGame th = evalContT do
           orElse
             do
               isInterpretRequestValid req >>= check . not
-              sendSFThread sfth (That (Last Nothing))
+              sendSFThread sfth (mempty { interpretRequest = Event Nothing })
               pure Nothing
             do
               req2 <- takeInterpretRequest rth
-              sendSFThread sfth (That (Last (Just req2)))
+              sendSFThread sfth (mempty { interpretRequest = Event (Just req2)})
               pure (Just req2)
         k mreq2
       -- we have no request to monitor
       Nothing -> do
         req <- atomically do
           req <- takeInterpretRequest rth
-          sendSFThread sfth (That (Last (Just req)))
+          sendSFThread sfth (mempty { interpretRequest = Event (Just req)} )
           pure req
         k (Just req)
 
@@ -128,5 +125,3 @@ runGame th = evalContT do
     Left (Left e) -> throwIO (UIException e)
     Right (Just e) -> throwIO (SimException e)
     Right Nothing -> throwIO . SimException $ userError "Simulation SF terminated early"
-  where
-    simSF' = arr (event (NoEvent, NoEvent) (fromThese NoEvent NoEvent . bimap Event (Event . getLast))) >>> simSF

@@ -113,9 +113,9 @@ executable spell-monad-exe
                     , spell-monad
                     , async
                     , bearriver
+                    , containers
                     , mtl
                     , stm
-                    , these
 
 executable terminal-demo
     import:           warnings

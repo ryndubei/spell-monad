@@ -77,21 +77,20 @@ spellInterpreter = proc (r, e, o, objsOutput) -> do
   (mana', result, objsInput, stdout) <- continuousInterpreter -< ((r, e, objsOutput), o)
   returnA -< (objsInput, mana', result, stdout)
   where
-    nothingInterpreter = arr (\(m, _, _) -> (m, NoEvent, mempty, NoEvent))
+    nothingInterpreter = arr (\(m, _, _, _) -> (m, NoEvent, mempty, NoEvent))
 
     -- Switch interpreter sessions in the background.
-    continuousInterpreter :: SF m ((Double, Event SomeException, ObjsOutput e m r), ObjInput (Player e m r)) (Double, Event r, ObjsInput e m r, Event Char)
     continuousInterpreter = proc ((cost, e, objsOutput), o) -> do
-      isf <- newConstantInterpreter -< o
+      isf <- newConstantInterpreter -< replInput o
       -- Ignore external exception at time 0: it's meant for the code that is already
       -- running, not the code that we are switching to.
-      let isf' = fmap ((\(a,_,c) -> (a,NoEvent,c)) >=-) isf
+      let isf' = fmap ((\(a,_,c,d) -> (a,NoEvent,c,d)) >=-) isf
       -- Prioritise the user interrupt, since it cannot be caught
           e' = (SomeException UserInterrupt <$ isf) <|> e
-      rSwitch nothingInterpreter -< ((cost, e', objsOutput), isf')
+      rSwitch nothingInterpreter -< ((cost, e', objsOutput,playerStdin o), isf')
 
-    newConstantInterpreter = proc (PlayerInput{replInput, playerStdin}) -> do
-      returnA -< maybe nothingInterpreter (\(s, collapse, collapseException) -> proc (r,e, objsOutput) -> do
+    newConstantInterpreter = proc replInput -> do
+      returnA -< maybe nothingInterpreter (\(s, collapse, collapseException) -> proc (r,e,objsOutput,playerStdin) -> do
         -- TODO: print stdout
         (mana', result, objsInput, stdout) <- constantInterpreter s collapse collapseException -< (r, e, objsOutput, playerStdin)
         -- can't use 'edgeJust', because it has the surprising definition of 'edgeBy ... (Just undefined)' (???)
@@ -105,13 +104,6 @@ spellInterpreter = proc (r, e, o, objsOutput) -> do
     -- SF that can assume the Spell input is constant. Returns a cancellation
     -- function, and eventually the result. Use the returned canceller in the
     -- same tick to cancel.
-    constantInterpreter
-      :: SpellT e (MaybeT m `Product` ReaderT SomeException m) r
-      -> (e -> r)
-      -> (SomeException -> e)
-      -> SF m
-          (Double, Event SomeException, ObjsOutput e m r, Event (Seq Char))
-          (Double, Maybe r, ObjsInput e m r, Event Char)
     constantInterpreter s0 collapse eFromException = loopPre (s0, False, mempty) $
       proc ((currentMana, e, objsOutput, playerStdin), (s, listeningStdin, stdin1)) -> do
         -- Only listen to stdin if we are blocked, otherwise discard the input

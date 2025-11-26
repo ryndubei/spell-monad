@@ -2,7 +2,7 @@
 {-# LANGUAGE BlockArguments #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE RecordWildCards #-}
-module Simulation (SimState(..), SimEvent(..), simSF, ObjectIdentifier(..)) where
+module Simulation (SimState(..), SimEvent(..), simSF, ObjectIdentifier(..), SFInput(..)) where
 
 import FRP.BearRiver
 import Input
@@ -21,6 +21,7 @@ import Simulation.Coordinates
 import Data.Foldable
 import Data.Function
 import qualified Data.IntMap.Strict as IntMap
+import Control.Applicative
 
 -- | Tells the UI thread how an object should be drawn.
 data ObjectIdentifier = Player | Firebolt deriving (Eq, Ord, Show, Generic)
@@ -49,8 +50,24 @@ instance Semigroup SimEvent where
 instance Monoid SimEvent where
   mempty = SimEvent { spellOutput = mempty, interpretResponse = pure () }
 
-simSF :: SF (EvalT Untrusted IO) (Event UserInput, Event (Maybe InterpretRequest)) (SimState, Event SimEvent)
-simSF = proc (u, req) -> do
+data SFInput = SFInput
+  { gameInput :: Event UserInput
+  , termStdin :: Event (Seq Char)
+  , interpretRequest :: Event (Maybe InterpretRequest)
+  }
+
+instance Semigroup SFInput where
+  (<>) sfi1 sfi2 = SFInput
+    { gameInput = mergeBy (<>) (gameInput sfi1) (gameInput sfi2)
+    , termStdin = mergeBy (<>) (termStdin sfi1) (termStdin sfi2)
+    , interpretRequest = interpretRequest sfi2 <|> interpretRequest sfi1
+    }
+
+instance Monoid SFInput where
+  mempty = SFInput empty empty empty
+
+simSF :: SF (EvalT Untrusted IO) (Event SFInput) (SimState, Event SimEvent)
+simSF = arr (event mempty id) >>> proc SFInput{gameInput = u, termStdin = playerStdin, interpretRequest = req} -> do
   simInput <- generaliseSF processInput -< u
 
   let replInput =
@@ -63,7 +80,7 @@ simSF = proc (u, req) -> do
                 Nothing -> pure ()
                 Just s -> s (Right a)
            in (fmap submitResult toInterpret', submitException, pure)
-      playerIn = PlayerInput { replInput, simInput, overrideFacingDirection = NoEvent, playerStdin = NoEvent }
+      playerIn = PlayerInput { replInput, simInput, overrideFacingDirection = NoEvent, playerStdin }
       objsInput = mempty { player = playerIn }
   objsOut <- objectsSF objsOutput0 objs0 -< objsInput
   let PlayerOutput{..} = player objsOut
