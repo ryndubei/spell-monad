@@ -1,10 +1,5 @@
-{-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE DerivingVia #-}
 {-# LANGUAGE BlockArguments #-}
-{-# LANGUAGE PartialTypeSignatures #-}
 {-# LANGUAGE ApplicativeDo #-}
-{-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
-{-# HLINT ignore "Use =<<" #-}
 module Spell.Eval (evalSpellUntrusted, runEvalUntrusted, EvalT, untrustedAllocationLimit) where
 
 import Spell (SpellT(..), SpellF(..), mapSpellException, Spell(..), generaliseSpell, hoistSpellT, joinSpellT, spellExceptionFromException, spellExceptionToException)
@@ -69,60 +64,41 @@ instance Applicative f => Monoid (Semicolonable f) where
 
 -- | Turn a particular unnatural transformation into a natural transformation.
 evalSpell
-  :: forall u n a e. (Monad u, Monad n)
+  :: forall u n a e. (Monad u, Applicative n)
   => (forall k (f :: k -> Type). u (Some f) -> Some (Compose u f)) -- ^ u must preserve hidden types
   -> (forall x. NFData x => u x -> n x)
   -> SpellT e u a
   -> SpellT (u e) n (u a)
 evalSpell uCommSome f (SpellT (FreeT m)) = do
-  pureOrFree <- lift . pullEither' $ fmap (\case Pure a -> Left a; Free a -> Right a) m
-  case pureOrFree of
-    Left a -> pure a
-    Right u -> do
-      spellF <- lift $ pullSpellF' u
-      let spellF' = unSpellT . evalSpell uCommSome f . join . lift . fmap SpellT <$> spellF
-          spellT = SpellT . FreeT . pure $ Free spellF'
-      spellT
-  where
-    pullEither :: forall x y. u (Some (Product Identity (Tag (Either x y)))) -> n (Either (u x) (u y))
-    pullEither u0 = do
-      let u1 = uCommSome u0
-      withSome u1 \(Compose u2) -> do
-        let u3 = fmap (\(Pair (Identity a) b) -> (a,b)) u2
-            uargs = fmap fst u3
-            utag = fmap snd u3
-        tag <- f utag
-        pure $ case tag of
-          TLeft -> Left uargs
-          TRight -> Right uargs
-
-    pullEither' :: forall x y. u (Either x y) -> n (Either (u x) (u y))
-    pullEither' = pullEither . fmap toDSum
-
-    pullSpellF' :: forall next. u (SpellF e u next) -> n (SpellF (u e) n (u next))
-    pullSpellF' = pullSpellF . fmap toDSum
-
-    pullSpellF :: forall next. u (Some (Product Identity (Tag (SpellF e u next)))) -> n (SpellF (u e) n (u next))
-    pullSpellF u0 = do
-      let u1 = uCommSome u0
-      withSome u1 \(Compose u2) -> do
-        let u3 = fmap (\(Pair (Identity a) b) -> (a,b)) u2
-            u = fmap fst u3
-        tag <- f $ fmap snd u3
-        pure $ case tag of
-          TFirebolt -> Firebolt (pure (join u))
-          TFace a b -> Face a b (pure (join u))
-          TThrow -> Throw u
-          TCatch ->
-            let expr = evalSpell uCommSome f . join . lift $ u >>= view _1
-                h e =
-                  evalSpell uCommSome f
-                  . join
-                  . lift
-                  $ (<*> e) (u >>= view _2)
-                next = (<*>) (u >>= view _3)
-             in Catch (pure expr) (pure h) (pure next)
-          TPutChar c -> PutChar c (pure (join u))
-          TGetChar ->
-            let next = (<*>) (join u)
-             in GetChar (pure $ next . pure)
+  let u0 = fmap toDSum m
+      u1 = uCommSome u0
+  withSome u1 \(Compose u2) -> do
+    let u3 = fmap (\(Pair (Identity a) b) -> (a,b)) u2
+        uargs = fmap fst u3
+        utag = fmap snd u3
+    SpellT $ FreeT $ do
+      tag <- f utag
+      pure $ case tag of
+        TPure -> Pure uargs
+        TFree TFirebolt ->
+          let z = join . lift . fmap SpellT $ join uargs
+              z' = unSpellT $ evalSpell uCommSome f z
+           in Free (Firebolt (pure z'))
+        TFree (TFace a b) ->
+          let z = join . lift . fmap SpellT $ join uargs
+              z' = unSpellT $ evalSpell uCommSome f z
+           in Free (Face a b (pure z'))
+        TFree TThrow -> Free (Throw uargs)
+        TFree (TPutChar c) ->
+          let z = join . lift . fmap SpellT $ join uargs
+              z' = unSpellT $ evalSpell uCommSome f z
+           in Free (PutChar c (pure z'))
+        TFree TGetChar ->
+          let z c = join . lift . fmap (flip (fmap SpellT) c) $ join uargs
+              z' = unSpellT . evalSpell uCommSome f <$> z
+           in Free (GetChar (pure z'))
+        TFree TCatch ->
+          let expr = evalSpell uCommSome f . join . lift $ uargs >>= view _1
+              h e = evalSpell uCommSome f . join . lift $ (uargs >>= view _2) <*> e
+              next a = unSpellT . evalSpell uCommSome f . SpellT . join . lift $ (uargs >>= view _3) <*> a
+           in Free (Catch (pure expr) (pure h) (pure next))
