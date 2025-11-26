@@ -69,7 +69,7 @@ instance Monoid SFInput where
   mempty = SFInput empty empty empty
 
 simSF :: SF (EvalT Untrusted IO) (Event SFInput) (SimState, Event SimEvent)
-simSF = arr (event mempty id) >>> proc SFInput{gameInput = u, termStdin = playerStdin, interpretRequest = req} -> do
+simSF = arr (event mempty id) >>> proc SFInput{gameInput = u, termStdin = stdin, interpretRequest = req} -> do
   simInput <- generaliseSF processInput -< u
 
   let replInput =
@@ -82,13 +82,15 @@ simSF = arr (event mempty id) >>> proc SFInput{gameInput = u, termStdin = player
                 Nothing -> pure ()
                 Just s -> s (Right a)
            in (fmap submitResult toInterpret', submitException, pure)
-      playerIn = PlayerInput { replInput, simInput, overrideFacingDirection = NoEvent, playerStdin }
-      objsInput = mempty { player = playerIn }
+      playerIn = PlayerInput { simInput, overrideFacingDirection = NoEvent, actions = NoEvent }
+      spellInterpreterIn = SpellInterpreterInput { replInput, stdin, exception = NoEvent, completeActions = NoEvent }
+      objsInput = mempty { player = playerIn, spellInterpreter = spellInterpreterIn }
   objsOut <- objectsSF objsOutput0 objs0 -< objsInput
   let PlayerOutput{..} = player objsOut
+      SpellInterpreterOutput{..} = spellInterpreter objsOut
       playerPos = (playerX, playerY)
       simEvent1 = fmap (\r -> mempty { interpretResponse = r }) replResponse
-      simEvent2 = gate (Event $ mempty { spellOutput = playerStdout }) (not $ null playerStdout)
+      simEvent2 = fmap (\cs -> mempty { spellOutput = cs }) stdout
       FireboltOutputs fireboltStates = firebolts objsOut
   returnA -< (SimState
     {
@@ -108,16 +110,24 @@ simSF = arr (event mempty id) >>> proc SFInput{gameInput = u, termStdin = player
     , playerMaxMana
     }, mergeBy (<>) simEvent1 simEvent2)
   where
-    objs0 = Objects { player = Identity (PlayerObject playerObj), firebolts = Identity (FireboltsObject fireboltsObj) }
+    objs0 = Objects
+      { player = Identity (PlayerObject playerObj)
+      , firebolts = Identity (FireboltsObject fireboltsObj)
+      , spellInterpreter = Identity (SpellInterpreterObject spellInterpreterObj)
+      }
     objsOutput0 = Objects
       { player = PlayerOutput
         { playerX = 0
         , playerY = 0
         , playerMana = 100
         , playerMaxMana = 100
-        , playerStdout = mempty
-        , replResponse = noEvent
         , playerFacingDirection = V2 1 0
         }
       , firebolts = FireboltOutputs mempty
+      , spellInterpreter = SpellInterpreterOutput
+        { replResponse = NoEvent
+        , stdout = NoEvent
+        , blocked = Nothing
+        , runningActions = mempty
+        }
       }

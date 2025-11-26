@@ -65,7 +65,10 @@ library
                     , Simulation.Objects
                     , Simulation.Objects.All
                     , Simulation.Objects.Player
+                    , Simulation.Objects.Player.Types
                     , Simulation.Objects.Firebolts
+                    , Simulation.Objects.SpellInterpreter
+                    , Simulation.Objects.SpellInterpreter.Types
                     , Spell.Eval
                     , Untrusted
     default-extensions:
@@ -80,6 +83,7 @@ library
                     , bytestring
                     , containers
                     , data-clist
+                    , data-default
                     , deepseq
                     , dunai
                     , effectful

@@ -1,18 +1,7 @@
 {-# LANGUAGE Arrows #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE UndecidableInstances #-}
-module Simulation.Objects
-  ( Objects1(..)
-  , Object
-  , Object'
-  , ObjsInput
-  , ObjsOutput
-  , ObjInput
-  , ObjOutput
-  , Player(..)
-  , FireboltsObject(..)
-  , objectsSF
-  ) where
+module Simulation.Objects where
 
 import FRP.BearRiver
 import Data.Kind
@@ -33,38 +22,24 @@ type ObjsInput = Objects1 ObjInput
 type ObjsOutput = Objects1 ObjOutput
 
 data Objects1 f (e :: Type) m r = Objects
-  { player :: f (Player e m r)
+  { player :: f Player
   , firebolts :: f FireboltsObject
+  , spellInterpreter :: f (SpellInterpreter e m r)
   }
 
-newtype Player (e :: Type) (m :: Type -> Type) (r :: Type) = PlayerObject (Object e m r (Player e m r))
+newtype Player = PlayerObject (Object' Player)
 newtype FireboltsObject = FireboltsObject (Object' FireboltsObject)
-
-instance
-  ( Semigroup (ObjInput (Player e m r))
-  , Semigroup (ObjInput FireboltsObject)
-  ) => Semigroup (ObjsInput e m r) where
-  (<>) a b = Objects
-    { player = player a <> player b
-    , firebolts = firebolts a <> firebolts b
-    }
-
-instance
-  ( Monoid (ObjInput (Player e m r))
-  , Monoid (ObjInput FireboltsObject)
-  ) => Monoid (ObjsInput e m r) where
-  mempty = Objects
-    { player = mempty
-    , firebolts = mempty
-    }
+newtype SpellInterpreter (e :: Type) (m :: Type -> Type) (r :: Type) = SpellInterpreterObject (Object e m r (SpellInterpreter e m r))
 
 objectsSF :: forall e m r. (Monad m, Monoid (ObjsInput e m r)) => ObjsOutput e m r -> Objects e m r -> SF m (ObjsInput e m r) (ObjsOutput e m r)
 objectsSF objsOutput0 objs = loopPre (objsOutput0, mempty) $ proc (objsInputExternal, (objsOutput, objsInputInternal)) -> do
   let objsInput = objsInputInternal <> objsInputExternal
   (player, in1) <- pobj -< (player objsInput, objsOutput)
   (firebolts, in2) <- fobj -< (firebolts objsInput, objsOutput)
-  let objsInputInternal' = in1 <> in2
+  (spellInterpreter, in3) <- sobj -< (spellInterpreter objsInput, objsOutput)
+  let objsInputInternal' = in1 <> in2 <> in3
   returnA -< second (,objsInputInternal') $ dup Objects{..}
   where
-    pobj = coerce (player objs)
+    PlayerObject pobj = coerce (player objs)
     FireboltsObject fobj = coerce (firebolts objs)
+    sobj = coerce (spellInterpreter objs)

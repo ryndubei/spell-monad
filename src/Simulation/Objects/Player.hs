@@ -1,59 +1,29 @@
 {-# OPTIONS_GHC -Wno-orphans #-}
 {-# LANGUAGE Arrows #-}
 {-# LANGUAGE BlockArguments #-}
-{-# LANGUAGE LambdaCase #-}
-module Simulation.Objects.Player (ObjInput(..), ObjOutput(..), playerObj) where
+{-# LANGUAGE ImpredicativeTypes #-}
+{-# LANGUAGE LiberalTypeSynonyms #-}
+{-# LANGUAGE PartialTypeSignatures #-}
+module Simulation.Objects.Player (playerObj, module Simulation.Objects.Player.Types) where
 
 import Simulation.Objects
-import Simulation.Objects.Firebolts
 import FRP.BearRiver
 import Simulation.Input
-import Spell
 import Control.Lens
 import Control.Monad.Fix
 import Simulation.Coordinates
 import App.Thread.SF
-import Data.Functor.Product
-import Control.Monad.Trans.Maybe
-import Control.Monad.Trans.Reader
-import Control.Exception
-import Control.Applicative
-import Data.Sequence (Seq)
-import Control.Monad.Trans.Class
 import Control.Monad
-import Control.Monad.Trans.Free
 import Data.Maybe
-import Spell.Exception (SpellException(..))
 import Linear.Epsilon
-import Control.Monad.Trans.State.Strict
-import qualified Data.Sequence as Seq
-
-data instance ObjInput (Player e m r) = PlayerInput
-  { simInput :: SimInput -- ^ Continuous user input
-  , replInput :: Event (Maybe (SpellT e (MaybeT m `Product` ReaderT SomeException m) r, e -> r, SomeException -> e))
-  , overrideFacingDirection :: Event (Maybe V)
-  , playerStdin :: Event (Seq Char)
-  }
-data instance ObjOutput (Player e m r) = PlayerOutput
-  { playerX :: !Double
-  , playerY :: !Double
-  , playerMana :: !Double
-  , playerMaxMana :: !Double
-  , playerStdout :: Seq Char
-  , replResponse :: Event r
-  , playerFacingDirection :: V
-  }
-
-instance Semigroup (ObjInput (Player e m r)) where
-  (<>) p1 p2 = PlayerInput
-    { simInput = simInput p1 <> simInput p2
-    , replInput = replInput p2 <|> replInput p1
-    , overrideFacingDirection = overrideFacingDirection p1 <|> overrideFacingDirection p2
-    , playerStdin =  mergeBy (<>) (playerStdin p1) (playerStdin p2)
-    }
-
-instance Monoid (ObjInput (Player e m r)) where
-  mempty = PlayerInput mempty empty empty empty
+import Simulation.Objects.Player.Types
+import Simulation.Objects.SpellInterpreter
+import Control.Monad.Trans.MSF.State
+import Control.Monad.Trans.MSF.Reader
+import Data.Either
+import qualified Data.IntMap.Strict as IntMap
+import qualified Data.IntSet as IntSet
+import Control.Applicative
 
 gravityAcceleration :: Fractional a => a
 gravityAcceleration = 9.8
@@ -67,136 +37,7 @@ playerJumpVelocity = 10
 playerManaRegenRate :: Fractional a => a
 playerManaRegenRate = 5
 
-spellInterpreter
-  :: forall e m r.
-  (Monad m, Monoid (ObjsInput e m r))
-  => SF m
-    (Double, Event SomeException, ObjInput (Player e m r), ObjsOutput e m r)
-    (ObjsInput e m r, Double, Event r, Event Char)
-spellInterpreter = proc (r, e, o, objsOutput) -> do
-  (mana', result, objsInput, stdout) <- continuousInterpreter -< ((r, e, objsOutput), o)
-  returnA -< (objsInput, mana', result, stdout)
-  where
-    nothingInterpreter = arr (\(m, _, _, _) -> (m, NoEvent, mempty, NoEvent))
-
-    -- Switch interpreter sessions in the background.
-    continuousInterpreter = proc ((cost, e, objsOutput), o) -> do
-      isf <- newConstantInterpreter -< replInput o
-      -- Ignore external exception at time 0: it's meant for the code that is already
-      -- running, not the code that we are switching to.
-      let isf' = fmap ((\(a,_,c,d) -> (a,NoEvent,c,d)) >=-) isf
-      -- Prioritise the user interrupt, since it cannot be caught
-          e' = (SomeException UserInterrupt <$ isf) <|> e
-      rSwitch nothingInterpreter -< ((cost, e', objsOutput,playerStdin o), isf')
-
-    newConstantInterpreter = proc replInput -> do
-      returnA -< maybe nothingInterpreter (\(s, collapse, collapseException) -> proc (r,e,objsOutput,playerStdin) -> do
-        (mana', result, objsInput, stdout) <- constantInterpreter s collapse collapseException -< (r, e, objsOutput, playerStdin)
-        -- can't use 'edgeJust', because it has the surprising definition of 'edgeBy ... (Just undefined)' (???)
-        -- so a Just output on the first tick would be discarded
-        result' <- edgeBy
-          (\case Nothing -> (\case Just a -> Just a; _ -> Nothing); _ -> const Nothing)
-          Nothing -< result
-        returnA -< (mana', result', objsInput, stdout)
-        ) <$> replInput
-
-    -- SF that can assume the Spell input is constant. Returns a cancellation
-    -- function, and eventually the result. Use the returned canceller in the
-    -- same tick to cancel.
-    constantInterpreter s0 collapse eFromException = loopPre (s0, False, mempty) $
-      proc ((currentMana, e, objsOutput, playerStdin), (s, listeningStdin, stdin1)) -> do
-        -- Only listen to stdin if we are blocked, otherwise discard the input
-        let stdin2 = if listeningStdin then event mempty id playerStdin <> stdin1 else stdin1
-            m = flip runStateT (s, currentMana, stdin2) $ handleSpell objsOutput eFromException (eventToMaybe e)
-
-        ((result, objsInput, stdout, blockedOnStdin), (s', newMana, newStdin)) <- arrM id -< lift m
-
-        let result' = fmap (either collapse id) result
-
-        returnA -< ((newMana, result', objsInput, stdout), (s', blockedOnStdin, newStdin))
-
--- | Small-step semantics for SpellT
-handleSpell
-  :: forall e m r s.
-     ( Monad m
-     , Monoid (ObjsInput e m r)
-     -- using type equality here as a type-level 'let'
-     , s ~ SpellT e (MaybeT m `Product` ReaderT SomeException m) r
-     )
-  => ObjsOutput e m r
-  -> (SomeException -> e)
-  -> Maybe SomeException
-  -> StateT
-      ( s
-      , Double -- current mana
-      , Seq Char -- stdin
-      ) m
-      ( Maybe (Either e r) -- final result
-      , ObjsInput e m r -- side-effects
-      , Event Char -- stdout
-      , Bool -- blocked on stdin (TODO: return larger block reason type?)
-      )
-handleSpell
-  Objects{player = PlayerOutput{playerX, playerY, playerFacingDirection}}
-  eFromException
-  toThrow
-  = do
-    (SpellT (FreeT (Pair (MaybeT nxt) (ReaderT canc))), currentMana, playerStdin) <- get
-    nxt' <- case toThrow of
-      Nothing -> lift nxt
-      Just e -> lift $ fmap Just (canc e)
-    case nxt' of
-      Nothing -> pure (Nothing, mempty, NoEvent, False) -- ^ repeat until we have the value
-      Just (Pure r) -> pure (Just (Right r), mempty, NoEvent, False)
-      Just (Free f) -> case f of
-        Firebolt nxt'' ->
-          if currentMana >= fireboltCost
-            then do
-              let s' = SpellT . join $ lift nxt''
-                  fireboltVel = fireboltSpeed *^ playerFacingDirection
-                  playerPos = V2 playerX playerY
-                  fs = FireboltState { fireboltPos = playerPos, fireboltVel, fireboltRadius = 1, lifetime = 10 }
-                  fin = FireboltsInput { killFirebolts = noEvent, spawnFirebolts = Event [fs] }
-              _1 .= s'
-              _2 %= subtract fireboltCost
-              pure (Nothing, mempty{firebolts = fin}, NoEvent, False)
-            else do
-              let enxt = liftF (Throw $ eFromException (SomeException OutOfSideEffects))
-              _1 .= enxt
-              pure (Nothing, mempty, NoEvent, False)
-        Throw e ->
-          -- TODO: implement catch
-          pure (Just (Left e), mempty, NoEvent, False)
-        Catch {} -> pure (Nothing, mempty, NoEvent, False) -- TODO: implement catch
-        PutChar c nxt'c -> do
-          let s' = SpellT $ join $ lift nxt'c
-          _1 .= s'
-          pure (Nothing, mempty, Event c, False)
-        GetChar nxt'c -> do
-          let s' c = SpellT . join . lift $ fmap ($ c) nxt'c
-          case playerStdin of
-            c Seq.:<| cs -> do
-              _3 .= cs
-              _1 .= s' c
-              pure (Nothing, mempty, NoEvent, False)
-            Seq.Empty -> pure (Nothing, mempty, NoEvent, True) -- block
-        Face faceX faceY nxt'f -> do
-          let dir = V2 faceX faceY
-              pin =
-                if nearZero dir
-                  then mempty { overrideFacingDirection = Event Nothing}
-                  else mempty { overrideFacingDirection = Event (Just (V2 faceX faceY))}
-              s' = SpellT . join $ lift nxt'f
-          _1 .= s'
-          pure (Nothing, Objects{player = pin, firebolts = mempty}, NoEvent, False)
-
-fireboltCost :: Fractional a => a
-fireboltCost = 10
-
-fireboltSpeed :: Fractional a => a
-fireboltSpeed = 10
-
-playerObj :: forall e m r. (Monad m, Monoid (ObjsInput e m r)) => Object e m r (Player e m r)
+playerObj :: forall e m r. (Monad m, Monoid (ObjsInput e m r)) => Object e m r Player
 playerObj = loopPre playerMaxMana $ proc ((playerIn, objsOutput), lastPlayerMana) -> do
 
   pos' <- (fix $ \k (pos1, vy) ->
@@ -210,29 +51,43 @@ playerObj = loopPre playerMaxMana $ proc ((playerIn, objsOutput), lastPlayerMana
   facingDirectionOverride <- arr (>>= \x -> guard (not (nearZero x)) >> pure (normalize x)) <<< hold Nothing -< overrideFacingDirection playerIn
   playerFacingDirection <- arr (uncurry fromMaybe) -< (defaultFacingDirection, facingDirectionOverride)
 
-  -- Player mana is regenerated once a second at the regen rate (instead of continuously)
-  -- Can't get more sophisticated than this unless I add a MonadFix constraint,
-  -- or rewrite spellInterpreter to rely less on current mana state.
+  -- TODO: continuous regen?
   manaRegenEvent <- repeatedly 1 () -< ()
   let newMana1 = event lastPlayerMana id $ min playerMaxMana (lastPlayerMana + playerManaRegenRate) <$ manaRegenEvent
 
-  (objsInput, newMana2, replResponse, stdout) <- spellInterpreter -< (newMana1, NoEvent, playerIn, objsOutput)
+  (playerMana, objsInput) <- generaliseSF actionMgr' -< (newMana1, (actions playerIn, (NoEvent, objsOutput)))
 
   let playerOutput = PlayerOutput
         { playerX = pos' ^. _x
         , playerY = pos' ^. _y
-        , playerMana = newMana2
+        , playerMana
         , playerMaxMana
-        , replResponse
-        , playerStdout = event mempty Seq.singleton stdout
         , playerFacingDirection
         }
 
-  returnA -< ((playerOutput, objsInput), newMana2)
+  returnA -< ((playerOutput, objsInput), playerMana)
   where
     playerMaxMana = 100
 
-    groundedMovement :: V -> SF Identity (ObjInput (Player e m r)) (V, Event (V, Double))
+    actionMgr' = readerS $
+      arr (\(mana, (dt, a)) -> (dt, (mana, a)))
+      >>> runStateS (runReaderS $ actionMgr mempty
+      >>> arr (mconcat . fst . partitionEithers . fmap snd . IntMap.toList))
+
+    actionMgr sfs = pSwitchB sfs (first (first (iPre empty)) >>> second (iPre mempty) >>> arr (uncurry monitorActionMgr)) \sfs' (as, dones) ->
+      let as' = map ((arr snd >>>) . runTask . unAction) as
+          k = if IntSet.null (IntMap.keysSet sfs') then 0 else IntSet.findMax (IntMap.keysSet sfs') + 1
+          as'' = IntMap.fromList $ zip [k ..] as'
+          sfs'' = IntMap.withoutKeys sfs' dones
+          sfs''' = as'' <> sfs''
+       in actionMgr sfs'''
+
+    monitorActionMgr (as, _) im =
+      let dones = IntMap.keysSet (IntMap.filter isRight im)
+          donese = if IntSet.null dones then NoEvent else Event dones
+       in mergeBy (<>) ((, mempty) <$> as) ((mempty,) <$> donese)
+
+    groundedMovement :: V -> SF Identity (ObjInput Player) (V, Event (V, Double))
     groundedMovement (V2 x0 _) = proc (PlayerInput{simInput = simInput@SimInput{simJump}}) -> do
         let (vx, _) = playerBaseVelocity *^ (simInput ^. moveVector)
         dx <- integral -< vx
@@ -243,7 +98,7 @@ playerObj = loopPre playerMaxMana $ proc ((playerIn, objsOutput), lastPlayerMana
 
     -- Accelerates downwards until both velocity and position would be negative,
     -- then switches back to grounded movement.
-    fallingMovement :: V -> Double -> SF Identity (ObjInput (Player e m r)) (V, Event V)
+    fallingMovement :: V -> Double -> SF Identity (ObjInput Player) (V, Event V)
     fallingMovement (V2 x0 y0) vy0 = proc (PlayerInput{simInput}) -> do
       let (vx, _) = playerBaseVelocity *^ (simInput ^. moveVector)
       dx <- integral -< vx
