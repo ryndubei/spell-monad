@@ -34,13 +34,14 @@ import Control.Applicative
 import Data.Maybe
 import Brick.Widgets.ProgressBar (progressBar, progressCompleteAttr, progressIncompleteAttr)
 import Control.Monad.Reader
+import Data.Time
+import Numeric (showGFloat)
 
 data Name
   = TerminalCursor
   | TerminalInputLine
   | TerminalViewport
   | GameWindow
-  | StatusBars
   | LogViewport
   deriving (Eq, Ord, Show)
 
@@ -50,6 +51,8 @@ data AppState = AppState
   , _windowSize :: DisplayRegion
   , _terminalFocus :: TerminalFocus
   , _term :: Terminal
+  , _displayFPS :: Double -- ^ In CPU time. (Why Double? Because it's closed)
+  , _lastFPSTimestamp :: UTCTime
   }
 
 data AppUserInput = GameInput UserInput | TermStdin Char
@@ -60,8 +63,8 @@ data GameExit = ExitDesktop | ExitMainMenu
 
 makeLenses ''AppState
 
-withGameUI :: AppThread -> ReplThread -> SimState -> (BrickThread (Maybe GameExit) (Either SimState [SimEvent]) AppUserInput -> IO a) -> IO a
-withGameUI th rth ss0 k = do
+withGameUI :: AppThread -> ReplThread -> UTCTime -> SimState -> (BrickThread (Maybe GameExit) (Either SimState [SimEvent]) AppUserInput -> IO a) -> IO a
+withGameUI th rth t0 ss0 k = do
   v <- appThreadVty th
   _windowSize <- displayBounds (outputIface v)
   let s0 = AppState
@@ -70,6 +73,8 @@ withGameUI th rth ss0 k = do
         , _windowSize
         , _terminalFocus = VisibleUnfocused
         , _term = (prompt .~ "Spell> ") terminal
+        , _displayFPS = 0
+        , _lastFPSTimestamp = t0
         }
   withBrickThread th (theapp rth) s0 \bth -> do
     withAsync
@@ -78,14 +83,14 @@ withGameUI th rth ss0 k = do
         -- dupBrickThreadIn prevents competition with threads sending to bth
         bth' <- lmap Left <$> atomically (dupBrickThreadIn bth)
         forever $ atomically do
-          isBrickQueueEmpty bth' >>= check 
+          isBrickQueueEmpty bth' >>= check
           statusChanged <- isJust <$> optional do
             status1 <- readTVar lastStatus
             status <- replStatus rth
             check (not $ status `sameStatus` status1)
             writeTVar lastStatus status
             sendBrickEvent bth' ReplStatusChange
-          receivedOutput <- isJust <$> optional do 
+          receivedOutput <- isJust <$> optional do
             cs <- some (getReplResult rth >>= maybe retry pure)
             sendBrickEvent bth' (ReplOutput cs)
           check (statusChanged || receivedOutput)
@@ -94,6 +99,15 @@ withGameUI th rth ss0 k = do
         k . mapBrickResult (^. gameExit) $ lmap Right bth
 
 data ReplEvent = ReplStatusChange | ReplOutput String
+
+updateFPS :: EventM Name AppState ()
+updateFPS = do
+  t <- use lastFPSTimestamp
+  t' <- liftIO getCurrentTime
+  lastFPSTimestamp .= t'
+  let dt = realToFrac $ nominalDiffTimeToSeconds (t' `diffUTCTime` t)
+      fps = 1 / dt
+  displayFPS .= fps
 
 theapp :: ReplThread -> TChan AppUserInput -> App AppState (Either ReplEvent (Either SimState [SimEvent])) Name
 theapp rth c = App {..}
@@ -109,18 +123,18 @@ theapp rth c = App {..}
              . clickable TerminalViewport
              . viewport TerminalViewport Vertical
              $ drawTerminal TerminalCursor (s ^. term)
-      , gameWindow s <=> hBorder <=> statusBars s
+      , clickable GameWindow (gameWindow s <=> hBorder <=> vLimit 2 (statusBars s <+> vBorder <+> fpsInfo s))
       ]
 
     statusBars s =
       let SimState{playerMana, playerMaxMana} = s ^. simState
           manaBar = (clamp 0 1 $ realToFrac playerMana / realToFrac playerMaxMana)
-       in clickable StatusBars
-        $ padBottom (Pad 1)
-        $ hLimitPercent 30
+       in hLimitPercent 30
         $ progressBar (Just "Side effects") manaBar
-    
-    gameWindow s = clickable GameWindow $ drawSimState (s ^. simState)
+
+    fpsInfo s = padLeft Max $ str ("display fps: " ++ showGFloat (Just 1) (s ^. displayFPS) "")
+
+    gameWindow s = drawSimState (s ^. simState)
 
     appAttrMap _ = attrMap defAttr
       [ (attrName "Player", withForeColor defAttr cyan)
@@ -163,8 +177,10 @@ theapp rth c = App {..}
           vScrollBy (viewportScroll TerminalViewport) (-1)
         _ -> pure ()
 
-    appHandleEvent (AppEvent (Right (Left ss))) = L.assign simState ss
-    appHandleEvent (AppEvent (Right (Right se))) =
+    appHandleEvent (AppEvent (Right (Left ss))) = do
+      updateFPS
+      L.assign simState ss
+    appHandleEvent (AppEvent (Right (Right se))) = do
       let se' = mconcat se
        in case se' of
         SimEvent { spellOutput } -> do
@@ -186,10 +202,6 @@ theapp rth c = App {..}
       Brick.zoom term $ forceVisibleInputLine .= True
       terminalFocus .= VisibleFocused
     appHandleEvent (MouseDown GameWindow BLeft _ _) = do
-      fc <- use terminalFocus
-      when (fc == VisibleFocused) $
-        terminalFocus .= VisibleUnfocused
-    appHandleEvent (MouseDown StatusBars BLeft _ _) = do
       fc <- use terminalFocus
       when (fc == VisibleFocused) $
         terminalFocus .= VisibleUnfocused
@@ -281,7 +293,7 @@ handleOutgoingEvent rth tc = \e -> do
       -- effects.
       continueWithoutRedraw
       pure s
-    
+
     go _ s = do
       continueWithoutRedraw
       pure s

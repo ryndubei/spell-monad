@@ -22,6 +22,7 @@ import Control.Monad.Fix
 import Data.Function
 import Spell.Eval
 import qualified Data.Sequence as Seq
+import Data.Time
 
 -- TODO: exception hierarchy
 
@@ -69,8 +70,10 @@ runGame th = evalContT do
   -- Assumption: sfth does not block indefinitely until input is given
   -- (ideally does not block at all on first output)
   s0 <- lift . atomically $ takeSFThread sfth
+  
+  t0 <- liftIO $ getCurrentTime
 
-  bth <- ContT $ withGameUI th rth s0
+  bth <- ContT $ withGameUI th rth t0 s0
 
   sfToBrickTh <- ContT . withAsync $ forever do
     responses <- atomically do

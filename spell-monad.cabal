@@ -120,6 +120,7 @@ executable spell-monad-exe
                     , containers
                     , mtl
                     , stm
+                    , time
 
 executable terminal-demo
     import:           warnings
