@@ -7,6 +7,7 @@ data UserInput = UserInput
   { moveX :: !Double
   , moveY :: !Double
   , jump :: !Bool
+  , enter :: !Bool
   } deriving Show
 
 userInputMoveVector :: Lens' UserInput (Double, Double)
@@ -18,6 +19,7 @@ instance Semigroup UserInput where
     { moveX = moveX u1 + moveX u2
     , moveY = moveY u1 + moveY u2
     , jump = jump u1 || jump u2
+    , enter = enter u1 || enter u2
     }
 
 instance Monoid UserInput where
@@ -25,4 +27,5 @@ instance Monoid UserInput where
     { moveX = 0
     , moveY = 0
     , jump = False
+    , enter = False
     }

@@ -379,4 +379,5 @@ directInput KDownLeft _ = Just mempty { moveX = -1, moveY = -1}
 directInput KLeft _ = Just mempty { moveX = -1 }
 directInput KUpLeft _ = Just mempty { moveX = -1, moveY = 1}
 directInput (KChar ' ') _ = Just mempty { jump = True }
+directInput KEnter _ = Just mempty { enter = True }
 directInput _ _ = Nothing

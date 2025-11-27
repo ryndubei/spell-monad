@@ -11,6 +11,7 @@ data SimInput = SimInput
   { simMoveX :: !Double
   , simMoveY :: !Double
   , simJump :: !(Event ())
+  , simEnter :: !(Event ())
   , inputWeight :: !Int
     -- ^ For the Semigroup instance: should be an average, therefore this is incremented on every append.
   }
@@ -22,11 +23,12 @@ instance Semigroup SimInput where
     { simMoveX = simMoveX s1 + simMoveX s2 / fromIntegral (inputWeight s1 + inputWeight s2)
     , simMoveY = simMoveY s1 + simMoveY s2 / fromIntegral (inputWeight s1 + inputWeight s2)
     , simJump = simJump s1 <|> simJump s2
+    , simEnter = simEnter s1 <|> simEnter s2
     , inputWeight = inputWeight s1 + inputWeight s2
     }
 
 instance Monoid SimInput where
-  mempty = SimInput { simMoveX = 0, simMoveY = 0, simJump = NoEvent, inputWeight = 0 }
+  mempty = SimInput { simMoveX = 0, simMoveY = 0, simJump = NoEvent, inputWeight = 0, simEnter = NoEvent }
 
 -- | norm (u ^. moveVector) = min 1 (norm u)
 moveVector :: Lens' SimInput (Double, Double)
@@ -37,6 +39,7 @@ processInput :: SF (Event UserInput) SimInput
 processInput = proc u -> do
   (simMoveX, simMoveY) <- smoothInput -< clampMagnitude . (^. userInputMoveVector) <$> u
   let simJump = tagWith () . filterE id $ fmap jump u
+      simEnter = tagWith () . filterE id $ fmap enter u
       inputWeight = 1
   returnA -< SimInput{..}
 
