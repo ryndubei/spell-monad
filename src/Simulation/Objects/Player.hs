@@ -1,6 +1,9 @@
 {-# OPTIONS_GHC -Wno-orphans #-}
 {-# LANGUAGE Arrows #-}
 {-# LANGUAGE BlockArguments #-}
+{-# LANGUAGE ImpredicativeTypes #-}
+{-# LANGUAGE LiberalTypeSynonyms #-}
+{-# LANGUAGE PartialTypeSignatures #-}
 module Simulation.Objects.Player (playerObj, module Simulation.Objects.Player.Types) where
 
 import Simulation.Objects
@@ -13,8 +16,14 @@ import App.Thread.SF
 import Control.Monad
 import Data.Maybe
 import Linear.Epsilon
-import qualified Data.Sequence as Seq
 import Simulation.Objects.Player.Types
+import Simulation.Objects.SpellInterpreter
+import Control.Monad.Trans.MSF.State
+import Control.Monad.Trans.MSF.Reader
+import Data.Either
+import qualified Data.IntMap.Strict as IntMap
+import qualified Data.IntSet as IntSet
+import Control.Applicative
 
 gravityAcceleration :: Fractional a => a
 gravityAcceleration = 9.8
@@ -42,29 +51,41 @@ playerObj = loopPre playerMaxMana $ proc ((playerIn, objsOutput), lastPlayerMana
   facingDirectionOverride <- arr (>>= \x -> guard (not (nearZero x)) >> pure (normalize x)) <<< hold Nothing -< overrideFacingDirection playerIn
   playerFacingDirection <- arr (uncurry fromMaybe) -< (defaultFacingDirection, facingDirectionOverride)
 
-  -- Player mana is regenerated once a second at the regen rate (instead of continuously)
-  -- Can't get more sophisticated than this unless I add a MonadFix constraint,
-  -- or rewrite spellInterpreter to rely less on current mana state.
+  -- TODO: continuous regen?
   manaRegenEvent <- repeatedly 1 () -< ()
   let newMana1 = event lastPlayerMana id $ min playerMaxMana (lastPlayerMana + playerManaRegenRate) <$ manaRegenEvent
 
-  -- (objsInput, newMana2, replResponse, stdout) <- spellInterpreter -< (newMana1, NoEvent, playerIn, objsOutput)
-  let stdout = undefined
-      newMana2 = undefined
-      objsInput = undefined
+  (playerMana, objsInput) <- generaliseSF actionMgr' -< (newMana1, (actions playerIn, (NoEvent, objsOutput)))
 
   let playerOutput = PlayerOutput
         { playerX = pos' ^. _x
         , playerY = pos' ^. _y
-        , playerMana = newMana2
+        , playerMana
         , playerMaxMana
-        , playerStdout = event mempty Seq.singleton stdout
         , playerFacingDirection
         }
 
-  returnA -< ((playerOutput, objsInput), newMana2)
+  returnA -< ((playerOutput, objsInput), playerMana)
   where
     playerMaxMana = 100
+
+    actionMgr' = readerS $
+      arr (\(mana, (dt, a)) -> (dt, (mana, a)))
+      >>> runStateS (runReaderS $ actionMgr mempty
+      >>> arr (mconcat . fst . partitionEithers . fmap snd . IntMap.toList))
+
+    actionMgr sfs = pSwitchB sfs (first (first (iPre empty)) >>> second (iPre mempty) >>> arr (uncurry monitorActionMgr)) \sfs' (as, dones) ->
+      let as' = map ((arr snd >>>) . runTask . unAction) as
+          k = if IntSet.null (IntMap.keysSet sfs') then 0 else IntSet.findMax (IntMap.keysSet sfs') + 1
+          as'' = IntMap.fromList $ zip [k ..] as'
+          sfs'' = IntMap.withoutKeys sfs' dones
+          sfs''' = as'' <> sfs''
+       in actionMgr sfs'''
+
+    monitorActionMgr (as, _) im =
+      let dones = IntMap.keysSet (IntMap.filter isRight im)
+          donese = if IntSet.null dones then NoEvent else Event dones
+       in mergeBy (<>) ((, mempty) <$> as) ((mempty,) <$> donese)
 
     groundedMovement :: V -> SF Identity (ObjInput Player) (V, Event (V, Double))
     groundedMovement (V2 x0 _) = proc (PlayerInput{simInput = simInput@SimInput{simJump}}) -> do

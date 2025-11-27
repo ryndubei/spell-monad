@@ -82,15 +82,15 @@ simSF = arr (event mempty id) >>> proc SFInput{gameInput = u, termStdin = stdin,
                 Nothing -> pure ()
                 Just s -> s (Right a)
            in (fmap submitResult toInterpret', submitException, pure)
-      playerIn = PlayerInput { simInput, overrideFacingDirection = NoEvent }
-      spellInterpreterIn = SpellInterpreterInput { replInput, stdin, exception = NoEvent, feedMana = NoEvent }
+      playerIn = PlayerInput { simInput, overrideFacingDirection = NoEvent, actions = NoEvent }
+      spellInterpreterIn = SpellInterpreterInput { replInput, stdin, exception = NoEvent, completeActions = NoEvent }
       objsInput = mempty { player = playerIn, spellInterpreter = spellInterpreterIn }
   objsOut <- objectsSF objsOutput0 objs0 -< objsInput
   let PlayerOutput{..} = player objsOut
       SpellInterpreterOutput{..} = spellInterpreter objsOut
       playerPos = (playerX, playerY)
       simEvent1 = fmap (\r -> mempty { interpretResponse = r }) replResponse
-      simEvent2 = gate (Event $ mempty { spellOutput = playerStdout }) (not $ null playerStdout)
+      simEvent2 = fmap (\cs -> mempty { spellOutput = cs }) stdout
       FireboltOutputs fireboltStates = firebolts objsOut
   returnA -< (SimState
     {
@@ -121,13 +121,13 @@ simSF = arr (event mempty id) >>> proc SFInput{gameInput = u, termStdin = stdin,
         , playerY = 0
         , playerMana = 100
         , playerMaxMana = 100
-        , playerStdout = mempty
         , playerFacingDirection = V2 1 0
         }
       , firebolts = FireboltOutputs mempty
       , spellInterpreter = SpellInterpreterOutput
         { replResponse = NoEvent
         , stdout = NoEvent
-        , needMana = NoEvent
+        , blocked = Nothing
+        , runningActions = mempty
         }
       }
