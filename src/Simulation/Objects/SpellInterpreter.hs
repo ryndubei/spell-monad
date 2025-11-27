@@ -116,7 +116,7 @@ handleSpell
        , Seq Char -- stdin
        , blk
        , Set ActionTag
-       ) (t m) (ObjOutput (SpellInterpreter e m r), ObjsInput e m r, Maybe (Blocked e m r))
+       ) (t m) (ObjOutput (SpellInterpreter e m r), ObjsInput e m r, Maybe Blocked)
 handleSpell
   (SpellInterpreterInput{exception = toThrow, stdin = newStdin}, Objects{player = PlayerOutput{playerX, playerY, playerFacingDirection}})
   collapse

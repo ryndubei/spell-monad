@@ -23,9 +23,9 @@ import Data.Set (Set)
 -- always > 0.
 newtype ActionTag = ActionTag { createdAt :: Time } deriving (Eq, Ord)
 
-data Blocked e m r
+data Blocked
   = BlockedOnStdin
-  | BlockedOnAction ActionTag
+  | BlockedOnAction !ActionTag
 
 -- | Some non-atomic, possibly-terminating operation that can take an arbitrary
 -- amount of time, and can gradually modify the mana available to it.
@@ -51,7 +51,7 @@ data instance ObjInput (SpellInterpreter e m r) = SpellInterpreterInput
 data instance ObjOutput (SpellInterpreter e m r) = SpellInterpreterOutput
   { replResponse :: !(Event r)
   , stdout :: !(Event (Seq Char))
-  , blocked :: !(Maybe (Blocked e m r))
+  , blocked :: !(Maybe Blocked)
   , runningActions :: !(Set ActionTag)
     -- ^ Note: currently, only one action will be running at a time. Written
     -- this way for ease of reasoning.
