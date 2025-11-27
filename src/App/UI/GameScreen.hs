@@ -132,7 +132,9 @@ theapp rth c = App {..}
        in hLimitPercent 30
         $ progressBar (Just "Side effects") manaBar
 
-    fpsInfo s = padLeft Max $ str ("display fps: " ++ showGFloat (Just 1) (s ^. displayFPS) "")
+    fpsInfo s =
+      let fpsString = showGFloat (Just 1) (s ^. displayFPS) ""
+       in padLeft Max $ str "display fps: " <+> padLeft (Pad . max 0 $ 10 - textWidth fpsString) (str fpsString) 
 
     gameWindow s = drawSimState (s ^. simState)
 
