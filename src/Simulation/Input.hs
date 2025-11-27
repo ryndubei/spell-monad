@@ -6,6 +6,8 @@ import Input
 import FRP.Yampa
 import Control.Lens
 import Control.Applicative
+import Linear.Epsilon
+import Simulation.Coordinates
 
 data SimInput = SimInput
   { simMoveX :: !Double
@@ -31,13 +33,13 @@ instance Monoid SimInput where
   mempty = SimInput { simMoveX = 0, simMoveY = 0, simJump = NoEvent, inputWeight = 0, simEnter = NoEvent }
 
 -- | norm (u ^. moveVector) = min 1 (norm u)
-moveVector :: Lens' SimInput (Double, Double)
-moveVector = lens (\SimInput{simMoveX, simMoveY} -> (simMoveX, simMoveY)) (\u (x,y) -> u {simMoveX = x, simMoveY = y})
+moveVector :: Lens' SimInput V
+moveVector = lens (\SimInput{simMoveX, simMoveY} -> V2 simMoveX simMoveY) (\u (V2 x y) -> u {simMoveX = x, simMoveY = y})
 
 -- | Turns a stream of discrete input events into a continuous signal.
 processInput :: SF (Event UserInput) SimInput
 processInput = proc u -> do
-  (simMoveX, simMoveY) <- smoothInput -< clampMagnitude . (^. userInputMoveVector) <$> u
+  (V2 simMoveX simMoveY) <- smoothInput -< clampMagnitude . (^. userInputMoveVector) <$> u
   let simJump = tagWith () . filterE id $ fmap jump u
       simEnter = tagWith () . filterE id $ fmap enter u
       inputWeight = 1
@@ -66,7 +68,7 @@ clampMagnitude v = v ^/ max 1 (norm v)
 --
 -- >>> embed smoothInput (deltaEncode 1 [Event (1.0,2.0), NoEvent, NoEvent, NoEvent, Event (3.0, -5.0), NoEvent, NoEvent])
 -- [(0.0,0.0),(0.8944271909999159,1.7888543819998317),(1.7888543819998317,3.5777087639996634),(0.8944271909999159,1.7888543819998317),(0.22360679774997896,0.4472135954999579),(1.131821322293319,-1.3346804466384952),(2.0400358468366595,-3.116574488776948)]
-smoothInput :: forall v k. (Eq v, VectorSpace v k, Real k, Floating k) => SF (Event v) v
+smoothInput :: SF (Event V) V
 smoothInput = decayFrom zeroVector
   where
     decayFrom v0 = switch
@@ -77,7 +79,7 @@ smoothInput = decayFrom zeroVector
 
     moveTo v0 v0' =
       let disp = v0' ^-^ v0
-          udisp = if disp /= zeroVector then normalize disp else disp
+          udisp = if not (nearZero disp) then normalize disp else disp
           -- t = s / v
           timeToCollide = norm disp / inputChangeRate
           a = inputChangeRate *^ udisp
