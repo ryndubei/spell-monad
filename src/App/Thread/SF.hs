@@ -36,7 +36,7 @@ morphSF :: (Monad m2, Monad m1) => (forall c. m1 c -> m2 c) -> SF m1 a b -> SF m
 morphSF nat = morphS (mapReaderT nat) 
 
 maxDelay :: Num a => a
-maxDelay = 30 * 10^(3 :: Int) -- 30ms in microseconds
+maxDelay = 10 * 10^(3 :: Int) -- 10ms in microseconds
 
 -- | Signal function thread with input 'u', continuous output 's' and discrete
 -- output 'e'.
