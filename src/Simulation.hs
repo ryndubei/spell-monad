@@ -92,6 +92,11 @@ simSF = arr (event mempty id) >>> proc SFInput{gameInput = u, termStdin = stdin,
       simEvent1 = fmap (\r -> mempty { interpretResponse = r }) replResponse
       simEvent2 = fmap (\cs -> mempty { spellOutput = cs }) stdout
       FireboltOutputs fireboltStates = firebolts objsOut
+  
+  -- Lag camera slightly behind the player position
+  playerXLagged <- delay 0.5 0 -< playerX
+  playerYLagged <- delay 0.5 0 -< playerY
+
   returnA -< (SimState
     {
       -- square of diameter 2
@@ -104,8 +109,8 @@ simSF = arr (event mempty id) >>> proc SFInput{gameInput = u, termStdin = stdin,
                  in dot fireboltDpos fireboltDpos - fireboltRadius
               ) (snd <$> IntMap.toList fireboltStates)
          in minimumBy (compare `on` snd) $ (Player, playerDistance) : map (Firebolt,) fireboltDistances
-    , cameraX = 0
-    , cameraY = 0
+    , cameraX = playerXLagged
+    , cameraY = playerYLagged
     , playerMana
     , playerMaxMana
     }, mergeBy (<>) simEvent1 simEvent2)
