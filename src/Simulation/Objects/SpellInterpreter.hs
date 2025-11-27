@@ -1,6 +1,5 @@
-{-# LANGUAGE LambdaCase #-}
 {-# OPTIONS_GHC -Wno-orphans #-}
-module Simulation.Object.SpellInterpreter (spellInterpreterObj, module Simulation.Objects.SpellInterpreter.Types) where
+module Simulation.Objects.SpellInterpreter (spellInterpreterObj, module Simulation.Objects.SpellInterpreter.Types) where
 
 import FRP.BearRiver
 import Simulation.Objects
@@ -9,7 +8,7 @@ import Data.Functor.Product
 import Control.Monad.Reader
 import Control.Monad.Trans.Maybe
 import Spell (SpellT(..), SpellF (..))
-import Control.Monad.Trans.State
+import Control.Monad.Trans.State.Strict
 import Data.Sequence (Seq)
 import qualified Data.Sequence as Seq
 import Simulation.Objects.Firebolts
@@ -23,59 +22,64 @@ import Control.Applicative
 
 import Simulation.Objects.SpellInterpreter.Types
 import Simulation.Objects.Player.Types
+import Control.Monad.Trans.MSF.State (runStateS__)
 
-spellInterpreterObj = undefined
+fireboltCost :: Fractional a => a
+fireboltCost = 10
 
-spellInterpreter
-  :: forall e m r.
-  (Monad m, Monoid (ObjsInput e m r))
-  => SF m
-    (Double, Event SomeException, ObjInput Player, ObjsOutput e m r)
-    (ObjsInput e m r, Double, Event r, Event Char)
-spellInterpreter = proc (r, e, o, objsOutput) -> do
-  (mana', result, objsInput, stdout) <- continuousInterpreter -< ((r, e, objsOutput), o)
-  returnA -< (objsInput, mana', result, stdout)
+fireboltSpeed :: Fractional a => a
+fireboltSpeed = 10
+
+spellInterpreterObj :: (Monad m, Monoid (ObjsInput e m r)) => Object e m r (SpellInterpreter e m r)
+spellInterpreterObj = continuousInterpreter
   where
-    nothingInterpreter = arr (\(m, _, _, _) -> (m, NoEvent, mempty, NoEvent))
-
-    -- Switch interpreter sessions in the background.
-    continuousInterpreter = proc ((cost, e, objsOutput), o) -> do
-      isf <- newConstantInterpreter -< undefined
+    nothingInterpreter = undefined
+    continuousInterpreter = proc (o@SpellInterpreterInput{replInput, exception}, objsOutput) -> do
+      isf <- newConstantInterpreter -< replInput
       -- Ignore external exception at time 0: it's meant for the code that is already
       -- running, not the code that we are switching to.
-      let isf' = fmap ((\(a,_,c,d) -> (a,NoEvent,c,d)) >=-) isf
-      -- Prioritise the user interrupt, since it cannot be caught
-          e' = (SomeException UserInterrupt <$ isf) <|> e
-      rSwitch nothingInterpreter -< ((cost, e', objsOutput,playerStdin o), isf')
-
+      let isf' = fmap (first (\s -> (s{exception = NoEvent})) >=-) isf
+          -- Prioritise the user interrupt, since it cannot be caught
+          e' = (SomeException UserInterrupt <$ isf) <|> exception
+      rSwitch nothingInterpreter -< ((o{exception = e'}, objsOutput), isf')
     newConstantInterpreter = proc replInput -> do
-      returnA -< maybe nothingInterpreter (\(s, collapse, collapseException) -> proc (r,e,objsOutput,playerStdin) -> do
-        (mana', result, objsInput, stdout) <- constantInterpreter s collapse collapseException -< (r, e, objsOutput, playerStdin)
-        -- can't use 'edgeJust', because it has the surprising definition of 'edgeBy ... (Just undefined)' (???)
-        -- so a Just output on the first tick would be discarded
-        result' <- edgeBy
-          (\case Nothing -> (\case Just a -> Just a; _ -> Nothing); _ -> const Nothing)
-          Nothing -< result
-        returnA -< (mana', result', objsInput, stdout)
-        ) <$> replInput
-
-    -- SF that can assume the Spell input is constant. Returns a cancellation
-    -- function, and eventually the result. Use the returned canceller in the
-    -- same tick to cancel.
-    constantInterpreter s0 collapse eFromException = loopPre (s0, False, mempty) $
-      proc ((currentMana, e, objsOutput, playerStdin), (s, listeningStdin, stdin1)) -> do
-        -- Only listen to stdin if we are blocked, otherwise discard the input
-        let stdin2 = if listeningStdin then event mempty id playerStdin <> stdin1 else stdin1
-            m = flip runStateT (s, currentMana, stdin2) $ handleSpell objsOutput eFromException (eventToMaybe e)
-
-        ((result, objsInput, stdout, blockedOnStdin), (s', newMana, newStdin)) <- arrM id -< lift m
-
-        let result' = fmap (either collapse id) result
-
-        returnA -< ((newMana, result', objsInput, stdout), (s', blockedOnStdin, newStdin))
-
+      returnA -< maybe nothingInterpreter
+        (\(s0, collapse, eFromException) -> constantInterpreter s0 collapse eFromException)
+        <$> replInput
+    constantInterpreter s0 collapse eFromException = flip runStateS__ (s0, False, mempty, 0) $
+      proc u@(SpellInterpreterInput{feedMana}, _) -> do
+        case feedMana of
+          -- Increment available mana by feedMana
+          Event d -> arrM (\d -> _4 %= (+ d)) -< d
+          NoEvent -> returnA -< ()
+        arrM id -< handleSpell u collapse eFromException
+    
 -- | Small-step semantics for SpellT
 handleSpell
+  :: forall e m r s t.
+     ( Monad m
+     , Monoid (ObjsInput e m r)
+     -- using type equality here as a type-level 'let'
+     , s ~ SpellT e (MaybeT m `Product` ReaderT SomeException m) r
+     , MonadTrans t
+     )
+  => (ObjInput (SpellInterpreter e m r), ObjsOutput e m r)
+  -> (e -> r)
+  -> (SomeException -> e)
+  -> StateT
+       ( s
+       , Bool -- blocked on stdin (TODO: return larger block reason type?)
+       , Seq Char -- stdin
+       , Double -- available mana
+       ) (t m) (ObjOutput (SpellInterpreter e m r), ObjsInput e m r)
+handleSpell
+  (SpellInterpreterInput{exception, stdin = newStdin}, Objects{player = PlayerOutput{playerX, playerY, playerFacingDirection}})
+  collapse
+  eFromException
+  = do
+    undefined
+
+handleSpell'
   :: forall e m r s.
      ( Monad m
      , Monoid (ObjsInput e m r)
@@ -95,7 +99,7 @@ handleSpell
       , Event Char -- stdout
       , Bool -- blocked on stdin (TODO: return larger block reason type?)
       )
-handleSpell
+handleSpell'
   Objects{player = PlayerOutput{playerX, playerY, playerFacingDirection}}
   eFromException
   toThrow
@@ -148,9 +152,3 @@ handleSpell
               s' = SpellT . join $ lift nxt'f
           _1 .= s'
           pure (Nothing, Objects{player = pin, firebolts = mempty}, NoEvent, False)
-
-fireboltCost :: Fractional a => a
-fireboltCost = 10
-
-fireboltSpeed :: Fractional a => a
-fireboltSpeed = 10

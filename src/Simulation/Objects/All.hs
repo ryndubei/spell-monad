@@ -4,11 +4,13 @@ module Simulation.Objects.All
   ( module Simulation.Objects
   , module Simulation.Objects.Firebolts
   , module Simulation.Objects.Player
+  , module Simulation.Objects.SpellInterpreter
   ) where
 
 import Simulation.Objects
 import Simulation.Objects.Firebolts
 import Simulation.Objects.Player
+import Simulation.Objects.SpellInterpreter
 
 instance
   ( Semigroup (ObjInput Player)

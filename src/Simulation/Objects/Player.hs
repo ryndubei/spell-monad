@@ -1,10 +1,9 @@
 {-# OPTIONS_GHC -Wno-orphans #-}
 {-# LANGUAGE Arrows #-}
 {-# LANGUAGE BlockArguments #-}
-module Simulation.Objects.Player (ObjInput(..), ObjOutput(..), playerObj, module Simulation.Objects.Player.Types) where
+module Simulation.Objects.Player (playerObj, module Simulation.Objects.Player.Types) where
 
 import Simulation.Objects
-import Simulation.Objects.Firebolts
 import FRP.BearRiver
 import Simulation.Input
 import Control.Lens
