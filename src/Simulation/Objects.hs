@@ -22,9 +22,9 @@ type ObjsInput = Objects1 ObjInput
 type ObjsOutput = Objects1 ObjOutput
 
 data Objects1 f (e :: Type) m r = Objects
-  { player :: f Player
-  , firebolts :: f FireboltsObject
-  , spellInterpreter :: f (SpellInterpreter e m r)
+  { player :: !(f Player)
+  , firebolts :: !(f FireboltsObject)
+  , spellInterpreter :: !(f (SpellInterpreter e m r))
   }
 
 newtype Player = PlayerObject (Object' Player)

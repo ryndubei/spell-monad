@@ -49,10 +49,10 @@ data instance ObjInput (SpellInterpreter e m r) = SpellInterpreterInput
   }
 
 data instance ObjOutput (SpellInterpreter e m r) = SpellInterpreterOutput
-  { replResponse :: Event r
-  , stdout :: Event (Seq Char)
-  , blocked :: Maybe (Blocked e m r)
-  , runningActions :: Set ActionTag
+  { replResponse :: !(Event r)
+  , stdout :: !(Event (Seq Char))
+  , blocked :: !(Maybe (Blocked e m r))
+  , runningActions :: !(Set ActionTag)
     -- ^ Note: currently, only one action will be running at a time. Written
     -- this way for ease of reasoning.
   }

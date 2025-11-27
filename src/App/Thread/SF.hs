@@ -137,7 +137,10 @@ withSFThread tf sf k = do
         pure dt'
       pure (dt, Just e)
 
-    actuate _ (s, e) = do
+    -- Since previous states depend on future states, laziness gives us nothing,
+    -- and only offloads the computation to the thread viewing SFThread.
+    -- (which probably harms performance if we run with +RTS -N)
+    actuate _ (!s, !e) = do
       liftIO . atomically $ writeTMVar lastOutput s
       event (pure ()) (liftIO . atomically . writeTQueue sfEvents) e
       pure False
