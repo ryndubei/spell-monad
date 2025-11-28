@@ -22,6 +22,7 @@ module Spell
   , throwSpell
   , joinSpellT
   , spellTCollapseExceptT
+  , inputTarget
   ) where
 
 import Control.Monad.Trans.Free
@@ -84,6 +85,7 @@ hoistSpellF g f = \case
   Throw e -> Throw e
   PutChar c next -> PutChar c (f next)
   GetChar next -> GetChar (f next)
+  InputTarget next -> InputTarget (f next)
 
 joinSpellT :: Monad m => SpellT e (SpellT e m) a -> SpellT e m a
 joinSpellT = unSpellT >>> iterT \case
@@ -97,6 +99,7 @@ joinSpellT = unSpellT >>> iterT \case
   Throw e -> liftF (Throw e)
   PutChar c next -> wrap (PutChar c (pure $ join next))
   GetChar next -> wrap (GetChar (pure $ \c -> next >>= \n -> n c))
+  InputTarget next -> wrap (InputTarget (pure $ \a b -> next >>= \n -> n a b))
 
 spellTCollapseExceptT :: Monad m => SpellT e (ExceptT e m) a -> SpellT e m a
 spellTCollapseExceptT = hoistSpellT (\(ExceptT m) -> do
@@ -125,6 +128,7 @@ mapSpellFException _ _ (Firebolt a) = Firebolt a
 mapSpellFException _ _ (Face a b next) = Face a b next
 mapSpellFException _ _ (PutChar c next) = PutChar c next
 mapSpellFException _ _ (GetChar next) = GetChar next
+mapSpellFException _ _ (InputTarget next) = InputTarget next
 
 data SpellF e (m :: Type -> Type) next
   -- Anything that is to be _fully_ forced should be annotated with !,
@@ -137,6 +141,7 @@ data SpellF e (m :: Type -> Type) next
   -- an output type, isomorphic to the 'Pure' constructor of FreeF.
   | PutChar !Char (m next)
   | GetChar (m (Char -> next))
+  | InputTarget (m (Double -> Double -> next))
 
   -- (ThreadKilled should crash the level but not the whole game in case
   -- the player manages to somehow import it)
@@ -193,3 +198,6 @@ putChar c = liftSpellF (PutChar c (Identity ()))
 
 getChar :: Spell Char
 getChar = liftSpellF (GetChar (Identity id))
+
+inputTarget :: Spell (Double, Double)
+inputTarget = liftSpellF (InputTarget (Identity (,)))

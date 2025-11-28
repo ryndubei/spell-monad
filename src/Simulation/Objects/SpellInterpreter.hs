@@ -184,6 +184,7 @@ handleSpell
               s' = SpellT . join $ lift nxt'f
           _1 .= s'
           pure (def, mempty{player = pin}, Nothing)
+        InputTarget _ -> pure (def, mempty, Nothing) -- TODO
 
 -- | If an exception is received at t=0, the action will not be performed.
 makeAtomicAction

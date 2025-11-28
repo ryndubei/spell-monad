@@ -97,6 +97,10 @@ evalSpell uCommSome f (SpellT (FreeT m)) = do
           let z c = join . lift . fmap (flip (fmap SpellT) c) $ join uargs
               z' = unSpellT . evalSpell uCommSome f <$> z
            in Free (GetChar (pure z'))
+        TFree TInputTarget ->
+          let z v = join . lift . fmap (flip (fmap SpellT) v . uncurry) $ join uargs
+              z' = unSpellT . evalSpell uCommSome f <$> z
+           in Free (InputTarget (pure $ curry z'))
         TFree TCatch ->
           let expr = evalSpell uCommSome f . join . lift $ uargs >>= view _1
               h e = evalSpell uCommSome f . join . lift $ (uargs >>= view _2) <*> e

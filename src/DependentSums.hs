@@ -28,18 +28,21 @@ instance DSum (SpellF e m next) where
     TThrow :: Tag (SpellF e m next) e
     TPutChar :: !Char -> Tag (SpellF e m next) (m next)
     TGetChar :: Tag (SpellF e m next) (m (Char -> next))
+    TInputTarget :: Tag (SpellF e m next) (m (Double -> Double -> next))
   toDSum (Firebolt next) = Some $ Pair (Identity next) TFirebolt
   toDSum (Face a b next) = Some $ Pair (Identity next) (TFace a b)
   toDSum (Catch expr h next) = Some $ Pair (Identity (expr,h,next)) TCatch
   toDSum (Throw e) = Some $ Pair (Identity e) TThrow
   toDSum (PutChar c next) = Some $ Pair (Identity next) (TPutChar c)
   toDSum (GetChar next) = Some $ Pair (Identity next) TGetChar
+  toDSum (InputTarget next) = Some $ Pair (Identity next) TInputTarget
   fromDSum TFirebolt a = Firebolt a
   fromDSum (TFace a b) next = Face a b next
   fromDSum TCatch (expr,h,next) = Catch expr h next
   fromDSum TThrow e = Throw e
   fromDSum TGetChar next = GetChar next
   fromDSum (TPutChar c) next = PutChar c next
+  fromDSum TInputTarget next = InputTarget next
 
 instance NFData (Tag (SpellF e m next) a) where
   rnf TFirebolt = ()
@@ -47,6 +50,7 @@ instance NFData (Tag (SpellF e m next) a) where
   rnf TCatch = ()
   rnf TThrow = ()
   rnf TGetChar = ()
+  rnf TInputTarget = ()
   rnf (TPutChar !_) = ()
 
 instance DSum (Either a b) where
