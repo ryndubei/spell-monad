@@ -85,6 +85,7 @@ spellInterpreterObj = continuousInterpreter
                           pure $ Just (u, oso)
                        | Just mex <- Map.lookup atag =<< eventToMaybe completeActions -> do
                           _3 .= Nothing
+                          _4 %= Set.delete atag
                           pure $ Just (u{exception = maybeToEvent mex}, oso)
                        | otherwise -> pure Nothing
 
