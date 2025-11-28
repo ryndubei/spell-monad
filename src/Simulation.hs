@@ -24,7 +24,7 @@ import qualified Data.IntMap.Strict as IntMap
 import Control.Applicative
 
 -- | Tells the UI thread how an object should be drawn.
-data ObjectIdentifier = Player | Firebolt deriving (Eq, Ord, Show, Generic)
+data ObjectIdentifier = Player | Firebolt | TargetSelector deriving (Eq, Ord, Show, Generic)
 
 instance NFData ObjectIdentifier
 
@@ -89,6 +89,7 @@ simSF = arr (event mempty id) >>> proc SFInput{gameInput = u, termStdin = stdin,
   !objsOut <- objectsSF objsOutput0 objs0 -< objsInput
   let PlayerOutput{..} = player objsOut
       SpellInterpreterOutput{..} = spellInterpreter objsOut
+      targetSelectorOut = targetSelector objsOut
       playerPos = (playerX, playerY)
       simEvent1 = fmap (\r -> mempty { interpretResponse = r }) replResponse
       simEvent2 = fmap (\cs -> mempty { spellOutput = cs }) stdout
@@ -109,7 +110,10 @@ simSF = arr (event mempty id) >>> proc SFInput{gameInput = u, termStdin = stdin,
                 let fireboltDpos = V2 x y ^-^ fireboltPos
                  in dot fireboltDpos fireboltDpos - fireboltRadius
               ) (snd <$> IntMap.toList fireboltStates)
-         in minimumBy (compare `on` snd) $ (Player, playerDistance) : map (Firebolt,) fireboltDistances
+            targetSelectorDistance = case targetSelectorOut of
+              TargetSelectorInactive -> Nothing
+              TargetSelectorActive{targetX, targetY} -> Just . subtract 0.5 . norm $ V2 x y ^-^ V2 targetX targetY
+         in minimumBy (compare `on` snd) $ (Player, playerDistance) : maybe mempty (pure . (TargetSelector,)) targetSelectorDistance ++ map (Firebolt,) fireboltDistances
     , cameraX = playerXLagged
     , cameraY = playerYLagged
     , playerMana

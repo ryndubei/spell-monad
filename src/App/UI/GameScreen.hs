@@ -141,6 +141,7 @@ theapp rth c = App {..}
     appAttrMap _ = attrMap defAttr
       [ (attrName "Player", withForeColor defAttr cyan)
       , (attrName "Firebolt", withForeColor defAttr brightYellow)
+      , (attrName "TargetSelector", withForeColor defAttr red)
       , (progressCompleteAttr, withBackColor (withForeColor defAttr black) cyan)
       , (progressIncompleteAttr, withBackColor (withForeColor defAttr white) brightBlack)
       ]
@@ -367,6 +368,7 @@ drawSimState SimState{..} =
 objectIdToAttr :: ObjectIdentifier -> AttrName
 objectIdToAttr Player = attrName "Player"
 objectIdToAttr Firebolt = attrName "Firebolt"
+objectIdToAttr TargetSelector = attrName "TargetSelector"
 
 directInput :: Key -> [Modifier] -> Maybe UserInput
 directInput KUp _ = Just $ mempty { moveY = 1 }

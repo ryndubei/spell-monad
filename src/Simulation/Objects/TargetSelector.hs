@@ -19,4 +19,4 @@ instance Monoid (ObjInput TargetSelector) where
 
 -- TODO
 targetSelectorObj :: (Monad m, Monoid (ObjsInput e m r)) => Object e m r TargetSelector
-targetSelectorObj = arr (const (TargetSelectorInactive, mempty))
+targetSelectorObj = arr (const (TargetSelectorActive 5 5, mempty))
