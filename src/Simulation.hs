@@ -119,6 +119,7 @@ simSF = arr (event mempty id) >>> proc SFInput{gameInput = u, termStdin = stdin,
       { player = Identity (PlayerObject playerObj)
       , firebolts = Identity (FireboltsObject fireboltsObj)
       , spellInterpreter = Identity (SpellInterpreterObject spellInterpreterObj)
+      , targetSelector = Identity (TargetSelectorObject targetSelectorObj)
       }
     objsOutput0 = Objects
       { player = PlayerOutput
@@ -135,4 +136,5 @@ simSF = arr (event mempty id) >>> proc SFInput{gameInput = u, termStdin = stdin,
         , blocked = Nothing
         , runningActions = mempty
         }
+      , targetSelector = TargetSelectorOutput
       }

@@ -25,11 +25,13 @@ data Objects1 f (e :: Type) m r = Objects
   { player :: !(f Player)
   , firebolts :: !(f FireboltsObject)
   , spellInterpreter :: !(f (SpellInterpreter e m r))
+  , targetSelector :: !(f TargetSelector)
   }
 
 newtype Player = PlayerObject (Object' Player)
 newtype FireboltsObject = FireboltsObject (Object' FireboltsObject)
 newtype SpellInterpreter (e :: Type) (m :: Type -> Type) (r :: Type) = SpellInterpreterObject (Object e m r (SpellInterpreter e m r))
+newtype TargetSelector = TargetSelectorObject (Object' TargetSelector)
 
 objectsSF :: forall e m r. (Monad m, Monoid (ObjsInput e m r)) => ObjsOutput e m r -> Objects e m r -> SF m (ObjsInput e m r) (ObjsOutput e m r)
 objectsSF objsOutput0 objs = loopPre (objsOutput0, mempty) $ proc (objsInputExternal, (objsOutput, objsInputInternal)) -> do
@@ -37,9 +39,11 @@ objectsSF objsOutput0 objs = loopPre (objsOutput0, mempty) $ proc (objsInputExte
   (player, in1) <- pobj -< (player objsInput, objsOutput)
   (firebolts, in2) <- fobj -< (firebolts objsInput, objsOutput)
   (spellInterpreter, in3) <- sobj -< (spellInterpreter objsInput, objsOutput)
-  let objsInputInternal' = in1 <> in2 <> in3
+  (targetSelector, in4) <- tobj -< (targetSelector objsInput, objsOutput)
+  let objsInputInternal' = in1 <> in2 <> in3 <> in4
   returnA -< second (,objsInputInternal') $ dup Objects{..}
   where
     PlayerObject pobj = coerce (player objs)
     FireboltsObject fobj = coerce (firebolts objs)
     sobj = coerce (spellInterpreter objs)
+    TargetSelectorObject tobj = coerce (targetSelector objs)

@@ -69,6 +69,7 @@ library
                     , Simulation.Objects.Firebolts
                     , Simulation.Objects.SpellInterpreter
                     , Simulation.Objects.SpellInterpreter.Types
+                    , Simulation.Objects.TargetSelector
                     , Spell.Eval
                     , Untrusted
     default-extensions:
