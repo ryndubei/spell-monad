@@ -24,6 +24,7 @@ import Data.Either
 import qualified Data.IntMap.Strict as IntMap
 import qualified Data.IntSet as IntSet
 import Control.Applicative
+import Simulation.Objects.TargetSelector
 
 gravityAcceleration :: Fractional a => a
 gravityAcceleration = 9.8
@@ -38,7 +39,12 @@ playerManaRegenRate :: Fractional a => a
 playerManaRegenRate = 5
 
 playerObj :: forall e m r. (Monad m, Monoid (ObjsInput e m r)) => Object e m r Player
-playerObj = loopPre playerMaxMana $ proc ((playerIn, objsOutput), lastPlayerMana) -> do
+playerObj = loopPre playerMaxMana $ proc ((playerIn1, objsOutput), lastPlayerMana) -> do
+
+  -- while TargetSelector is active, route all user input to it
+  let (playerIn, targetSelectorIn) = case targetSelector objsOutput of
+        TargetSelectorInactive -> (playerIn1, mempty)
+        TargetSelectorActive{} -> (playerIn1{simInput = mempty}, mempty{targetSelectorInput = simInput playerIn1})
 
   pos' <- (fix $ \k (pos1, vy) ->
     switch (generaliseSF $ fallingMovement pos1 vy) (\pos2 -> switch (generaliseSF $ groundedMovement pos2) k))
@@ -65,7 +71,7 @@ playerObj = loopPre playerMaxMana $ proc ((playerIn, objsOutput), lastPlayerMana
         , playerFacingDirection
         }
 
-  returnA -< ((playerOutput, objsInput), playerMana)
+  returnA -< ((playerOutput, objsInput <> mempty{targetSelector = targetSelectorIn}), playerMana)
   where
     playerMaxMana = 100
 
