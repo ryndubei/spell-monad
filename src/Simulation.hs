@@ -84,7 +84,8 @@ simSF = arr (event mempty id) >>> proc SFInput{gameInput = u, termStdin = stdin,
            in (fmap submitResult toInterpret', submitException, pure)
       playerIn = PlayerInput { simInput, overrideFacingDirection = NoEvent, actions = NoEvent }
       spellInterpreterIn = SpellInterpreterInput { replInput, stdin, exception = NoEvent, completeActions = NoEvent }
-      objsInput = mempty { player = playerIn, spellInterpreter = spellInterpreterIn }
+      targetSelectorIn = TargetSelectorInput simInput
+      objsInput = mempty { player = playerIn, spellInterpreter = spellInterpreterIn, targetSelector = targetSelectorIn }
   !objsOut <- objectsSF objsOutput0 objs0 -< objsInput
   let PlayerOutput{..} = player objsOut
       SpellInterpreterOutput{..} = spellInterpreter objsOut
