@@ -3,16 +3,20 @@ module Simulation.Objects.TargetSelector (targetSelectorObj, ObjOutput(..), ObjI
 
 import Simulation.Objects
 import FRP.BearRiver
+import Simulation.Input
 
-data instance ObjInput TargetSelector = TargetSelectorInput
-data instance ObjOutput TargetSelector = TargetSelectorOutput
+newtype instance ObjInput TargetSelector = TargetSelectorInput SimInput
+data instance ObjOutput TargetSelector = TargetSelectorInactive | TargetSelectorActive
+  { targetX :: !Double
+  , targetY :: !Double
+  }
 
 instance Semigroup (ObjInput TargetSelector) where
-  (<>) _ _ = TargetSelectorInput
+  (<>) (TargetSelectorInput a) (TargetSelectorInput b) = TargetSelectorInput (a <> b)
 
 instance Monoid (ObjInput TargetSelector) where
-  mempty = TargetSelectorInput
+  mempty = TargetSelectorInput mempty
 
 -- TODO
 targetSelectorObj :: (Monad m, Monoid (ObjsInput e m r)) => Object e m r TargetSelector
-targetSelectorObj = arr (const (TargetSelectorOutput, mempty))
+targetSelectorObj = arr (const (TargetSelectorInactive, mempty))

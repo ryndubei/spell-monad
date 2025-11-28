@@ -136,5 +136,5 @@ simSF = arr (event mempty id) >>> proc SFInput{gameInput = u, termStdin = stdin,
         , blocked = Nothing
         , runningActions = mempty
         }
-      , targetSelector = TargetSelectorOutput
+      , targetSelector = TargetSelectorInactive
       }
