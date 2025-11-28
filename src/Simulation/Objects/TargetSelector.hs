@@ -11,6 +11,7 @@ data instance ObjInput TargetSelector = TargetSelectorInput
   , activate :: !(Event ())
   }
 data instance ObjOutput TargetSelector = TargetSelectorInactive | TargetSelectorActive
+  -- ^ Should be interpreted as relative to player position
   { targetX :: !Double
   , targetY :: !Double
   }

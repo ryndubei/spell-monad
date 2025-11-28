@@ -111,7 +111,9 @@ simSF = arr (event mempty id) >>> proc SFInput{gameInput = u, termStdin = stdin,
               ) (snd <$> IntMap.toList fireboltStates)
             targetSelectorDistance = case targetSelectorOut of
               TargetSelectorInactive -> Nothing
-              TargetSelectorActive{targetX, targetY} -> Just . subtract 0.5 . norm $ V2 x y ^-^ V2 targetX targetY
+              TargetSelectorActive{targetX, targetY} ->
+                -- relative to player position
+                Just . subtract 0.5 . norm $ V2 x y ^-^ (V2 targetX targetY ^+^ V2 playerX playerY)
          in minimumBy (compare `on` snd) $ (Player, playerDistance) : maybe mempty (pure . (TargetSelector,)) targetSelectorDistance ++ map (Firebolt,) fireboltDistances
     , cameraX = playerXLagged
     , cameraY = playerYLagged
