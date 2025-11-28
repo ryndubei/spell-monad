@@ -4,18 +4,25 @@ module Simulation.Objects.TargetSelector (targetSelectorObj, ObjOutput(..), ObjI
 import Simulation.Objects
 import FRP.BearRiver
 import Simulation.Input
+import Control.Applicative
 
-newtype instance ObjInput TargetSelector = TargetSelectorInput SimInput
+data instance ObjInput TargetSelector = TargetSelectorInput
+  { targetSelectorInput :: !SimInput
+  , activate :: !(Event ())
+  }
 data instance ObjOutput TargetSelector = TargetSelectorInactive | TargetSelectorActive
   { targetX :: !Double
   , targetY :: !Double
   }
 
 instance Semigroup (ObjInput TargetSelector) where
-  (<>) (TargetSelectorInput a) (TargetSelectorInput b) = TargetSelectorInput (a <> b)
+  (<>) a b = TargetSelectorInput
+    { targetSelectorInput = targetSelectorInput a <> targetSelectorInput b
+    , activate = activate a <|> activate b
+    }
 
 instance Monoid (ObjInput TargetSelector) where
-  mempty = TargetSelectorInput mempty
+  mempty = TargetSelectorInput mempty empty
 
 -- TODO
 targetSelectorObj :: (Monad m, Monoid (ObjsInput e m r)) => Object e m r TargetSelector
