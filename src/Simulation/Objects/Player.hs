@@ -43,10 +43,9 @@ playerObj = loopPre playerMaxMana $ proc ((playerIn1, objsOutput), lastPlayerMan
 
 
   -- while TargetSelector is visible, route all user input to it
-  -- let (playerIn, targetSelectorIn) = if visible (targetSelector objsOutput)
-  --     then (playerIn1, mempty)
-  --     else (playerIn1{simInput = mempty}, mempty{targetSelectorInput = simInput playerIn1})
-  let (playerIn, targetSelectorIn) = (playerIn1, mempty)
+  let (playerIn, targetSelectorIn) = if visible (targetSelector objsOutput)
+      then (playerIn1{simInput = mempty}, mempty{targetSelectorInput = simInput playerIn1})
+      else (playerIn1, mempty)
 
   pos' <- (fix $ \k (pos1, vy) ->
     switch (generaliseSF $ fallingMovement pos1 vy) (\pos2 -> switch (generaliseSF $ groundedMovement pos2) k))

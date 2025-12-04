@@ -4,6 +4,10 @@ module Simulation.Objects.TargetSelector (targetSelectorObj, ObjOutput(..), ObjI
 import Simulation.Objects
 import FRP.BearRiver
 import Simulation.Input
+import Control.Lens
+import Linear.V2
+import Control.Monad.Fix
+import Control.Applicative
 
 data instance ObjInput TargetSelector = TargetSelectorInput
   { targetSelectorInput :: !SimInput
@@ -26,9 +30,29 @@ instance Semigroup (ObjInput TargetSelector) where
 instance Monoid (ObjInput TargetSelector) where
   mempty = TargetSelectorInput mempty False
 
--- TODO
+targetSelectorSpeed :: Fractional a => a
+targetSelectorSpeed = 10
+
 targetSelectorObj :: (Monad m, Monoid (ObjsInput e m r)) => Object e m r TargetSelector
-targetSelectorObj = proc (TargetSelectorInput{active}, _) -> do
-  returnA -< (defOut active, mempty)
-  where
-    defOut v = TargetSelectorOutput 5 5 v NoEvent
+targetSelectorObj = proc (TargetSelectorInput{targetSelectorInput, active}, _) -> do
+  let v = targetSelectorSpeed *^ (targetSelectorInput ^. moveVector)
+      selectEvent = simEnter targetSelectorInput
+
+  deactivateEvent <- edge -< not active
+  -- Delay selectEvent for consideration of resets
+  -- (so that the selection can be observed from targetX, targetY)
+  resetEvent <- arr (uncurry (<|>)) <<< second (iPre NoEvent) -< (deactivateEvent, selectEvent)
+
+  -- on resetEvent, reset dx, dy to 0
+  -- (by switching into a new integral SF)
+  V2 dx dy <- fix (\k -> switch (first integral) (\() -> second (initially NoEvent) >>> k))
+    -< (if active then v else zeroVector, resetEvent)
+
+  returnA -< (TargetSelectorOutput
+    -- magic number: start slightly offset from the player position
+    { targetX = dx + 5
+    , targetY = dy + 5
+    , visible = active
+    , select = selectEvent
+    }
+    , mempty)
