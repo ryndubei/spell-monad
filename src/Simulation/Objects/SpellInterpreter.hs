@@ -283,7 +283,7 @@ makeLongAction atag t = Action $ mkTask $ proc (e, oo) -> do
         eoi <- runTask t -< oo
         let oi1 = fromLeft mempty eoi
             eoi' = fmap (Event . Map.singleton atag) eoi
-            oi = oi1{spellInterpreter = mempty{completeActions = fromRight empty eoi'}}
+            oi = oi1{spellInterpreter = (spellInterpreter oi1){completeActions = fromRight empty eoi'}}
         completeEvent <- iPre NoEvent -< guard (isRight eoi)
         returnA -< (oi, completeEvent)
 
