@@ -41,10 +41,12 @@ playerManaRegenRate = 5
 playerObj :: forall e m r. (Monad m, Monoid (ObjsInput e m r)) => Object e m r Player
 playerObj = loopPre playerMaxMana $ proc ((playerIn1, objsOutput), lastPlayerMana) -> do
 
-  -- while TargetSelector is active, route all user input to it
-  let (playerIn, targetSelectorIn) = case targetSelector objsOutput of
-        TargetSelectorInactive -> (playerIn1, mempty)
-        TargetSelectorActive{} -> (playerIn1{simInput = mempty}, mempty{targetSelectorInput = simInput playerIn1})
+
+  -- while TargetSelector is visible, route all user input to it
+  -- let (playerIn, targetSelectorIn) = if visible (targetSelector objsOutput)
+  --     then (playerIn1, mempty)
+  --     else (playerIn1{simInput = mempty}, mempty{targetSelectorInput = simInput playerIn1})
+  let (playerIn, targetSelectorIn) = (playerIn1, mempty)
 
   pos' <- (fix $ \k (pos1, vy) ->
     switch (generaliseSF $ fallingMovement pos1 vy) (\pos2 -> switch (generaliseSF $ groundedMovement pos2) k))

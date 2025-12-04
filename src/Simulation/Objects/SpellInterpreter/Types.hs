@@ -15,6 +15,7 @@ import Control.Monad.Trans.State.Strict
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.Set (Set)
+import Simulation.Coordinates
 
 -- | If we have two ActionTags, the greater one is valid.
 --
@@ -25,7 +26,8 @@ newtype ActionTag = ActionTag { createdAt :: Time } deriving (Eq, Ord)
 
 data Blocked
   = BlockedOnStdin
-  | BlockedOnAction !ActionTag
+  | BlockedOnAction !ActionTag -- ^ unit reply
+  | BlockedOnInputTarget !ActionTag -- vector reply
 
 -- | Some non-atomic, possibly-terminating operation that can take an arbitrary
 -- amount of time, and can gradually modify the mana available to it.
@@ -46,6 +48,7 @@ data instance ObjInput (SpellInterpreter e m r) = SpellInterpreterInput
   , stdin :: Event (Seq Char) -- ^ Unblocks BlockedOnStdin if non-empty
   , exception :: Event SomeException -- ^ Async exception. Unblocks anything.
   , completeActions :: Event (Map ActionTag (Maybe SomeException)) -- ^ Unblocks BlockedOnAction, possibly with a synchronous exception.
+  , completeInputTargets :: Event (Map ActionTag (Either SomeException V)) -- ^ Unblocks BlockedOnInputTarget.
   }
 
 data instance ObjOutput (SpellInterpreter e m r) = SpellInterpreterOutput
@@ -66,7 +69,8 @@ instance Semigroup (ObjInput (SpellInterpreter e m r)) where
     , stdin = mergeBy (<>) (stdin si1) (stdin si2)
     , exception = exception si1 <|> exception si2
     , completeActions = mergeBy Map.union (completeActions si1) (completeActions si2)
+    , completeInputTargets = mergeBy Map.union (completeInputTargets si1) (completeInputTargets si2)
     }
 
 instance Monoid (ObjInput (SpellInterpreter e m r)) where
-  mempty = SpellInterpreterInput empty empty empty empty
+  mempty = SpellInterpreterInput empty empty empty empty empty

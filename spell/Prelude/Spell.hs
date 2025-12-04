@@ -19,6 +19,7 @@ import Spell
   , getChar
   , catch
   , throwSpell
+  , inputTarget
   )
 import Spell.Exception
 import Spell.IO

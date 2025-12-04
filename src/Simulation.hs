@@ -83,7 +83,7 @@ simSF = arr (event mempty id) >>> proc SFInput{gameInput = u, termStdin = stdin,
                 Just s -> s (Right a)
            in (fmap submitResult toInterpret', submitException, pure)
       playerIn = PlayerInput { simInput, overrideFacingDirection = NoEvent, actions = NoEvent }
-      spellInterpreterIn = SpellInterpreterInput { replInput, stdin, exception = NoEvent, completeActions = NoEvent }
+      spellInterpreterIn = SpellInterpreterInput { replInput, stdin, exception = NoEvent, completeActions = NoEvent, completeInputTargets = NoEvent }
       objsInput = mempty { player = playerIn, spellInterpreter = spellInterpreterIn }
   !objsOut <- objectsSF objsOutput0 objs0 -< objsInput
   let PlayerOutput{..} = player objsOut
@@ -109,11 +109,11 @@ simSF = arr (event mempty id) >>> proc SFInput{gameInput = u, termStdin = stdin,
                 let fireboltDpos = V2 x y ^-^ fireboltPos
                  in dot fireboltDpos fireboltDpos - fireboltRadius
               ) (snd <$> IntMap.toList fireboltStates)
-            targetSelectorDistance = case targetSelectorOut of
-              TargetSelectorInactive -> Nothing
-              TargetSelectorActive{targetX, targetY} ->
+            targetSelectorDistance = if visible targetSelectorOut
+              then 
                 -- relative to player position
-                Just . subtract 0.5 . norm $ V2 x y ^-^ (V2 targetX targetY ^+^ V2 playerX playerY)
+                Just . subtract 0.5 . norm $ V2 x y ^-^ (V2 (targetX targetSelectorOut) (targetY targetSelectorOut) ^+^ V2 playerX playerY)
+              else Nothing
          in minimumBy (compare `on` snd) $ (Player, playerDistance) : maybe mempty (pure . (TargetSelector,)) targetSelectorDistance ++ map (Firebolt,) fireboltDistances
     , cameraX = playerXLagged
     , cameraY = playerYLagged
@@ -142,5 +142,5 @@ simSF = arr (event mempty id) >>> proc SFInput{gameInput = u, termStdin = stdin,
         , blocked = Nothing
         , runningActions = mempty
         }
-      , targetSelector = TargetSelectorInactive
+      , targetSelector = TargetSelectorOutput{targetX = 0, targetY = 0, select = NoEvent, visible = False}
       }
