@@ -15,7 +15,6 @@ module Spell
   , hoistSpellT'
   , generaliseSpell
   , firebolt
-  , face
   , putChar
   , getChar
   , catch
@@ -76,8 +75,7 @@ hoistSpellT' f = SpellT . hoistFreeT f . transFreeT (hoistSpellF (hoistSpellT' f
 
 hoistSpellF :: Functor m => (forall x. SpellT e m x -> SpellT e n x) -> (forall x. m x -> n x) -> SpellF e m a -> SpellF e n a
 hoistSpellF g f = \case
-  Firebolt next -> Firebolt (f next)
-  Face a b next -> Face a b (f next)
+  Firebolt a b next -> Firebolt a b (f next)
   Catch expr h next ->
     let expr' = f (fmap g expr)
         h' = f $ fmap (fmap g) h
@@ -89,8 +87,8 @@ hoistSpellF g f = \case
 
 joinSpellT :: Monad m => SpellT e (SpellT e m) a -> SpellT e m a
 joinSpellT = unSpellT >>> iterT \case
-  Firebolt next -> wrap (Firebolt . pure $ join next)
-  Face a b next -> wrap (Face a b . pure $ join next)
+  Firebolt a b next -> do
+    wrap (Firebolt a b (pure $ join next))
   Catch expr h next ->
     let expr' = expr >>= joinSpellT
         h' e = h >>= joinSpellT . ($ e)
@@ -124,8 +122,7 @@ mapSpellFException f g (Catch expr h next) =
         Nothing -> liftF (Throw e')
         Just e -> mapSpellException f g (h1 e)
    in Catch expr' h' next
-mapSpellFException _ _ (Firebolt a) = Firebolt a
-mapSpellFException _ _ (Face a b next) = Face a b next
+mapSpellFException _ _ (Firebolt x0 y0 a) = Firebolt x0 y0 a
 mapSpellFException _ _ (PutChar c next) = PutChar c next
 mapSpellFException _ _ (GetChar next) = GetChar next
 mapSpellFException _ _ (InputTarget next) = InputTarget next
@@ -133,8 +130,7 @@ mapSpellFException _ _ (InputTarget next) = InputTarget next
 data SpellF e (m :: Type -> Type) next
   -- Anything that is to be _fully_ forced should be annotated with !,
   -- anything else should be annotated with 'm'.
-  = Firebolt (m next)
-  | Face !Double !Double (m next)
+  = Firebolt !Double !Double (m next)
   | forall a. Catch (m (SpellT e m a)) (m (e -> SpellT e m a)) (m (a -> next))
   | Throw e
   -- ^ exception to the rule: not annotated with 'm' because this is essentially
@@ -187,11 +183,8 @@ catch s (h :: e -> Spell a) =
           Nothing -> throwSpell e
      in Spell . FreeT . Identity . Free $ Catch (coerce s) (coerce h') (Identity pure)
 
-firebolt :: Spell ()
-firebolt = liftSpellF (Firebolt (Identity ()))
-
-face :: (Double, Double) -> Spell ()
-face (a,b) = liftSpellF (Face a b (Identity ()))
+firebolt :: (Double, Double) -> Spell ()
+firebolt (a,b) = liftSpellF (Firebolt a b (Identity ()))
 
 putChar :: Char -> Spell ()
 putChar c = liftSpellF (PutChar c (Identity ()))

@@ -14,7 +14,6 @@ module Prelude.Spell
 import Spell
   ( Spell
   , firebolt
-  , face
   , putChar
   , getChar
   , catch

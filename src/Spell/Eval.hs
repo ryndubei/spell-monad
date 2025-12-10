@@ -80,14 +80,10 @@ evalSpell uCommSome f (SpellT (FreeT m)) = do
       tag <- f utag
       pure $ case tag of
         TPure -> Pure uargs
-        TFree TFirebolt ->
+        TFree (TFirebolt a b) ->
           let z = join . lift . fmap SpellT $ join uargs
               z' = unSpellT $ evalSpell uCommSome f z
-           in Free (Firebolt (pure z'))
-        TFree (TFace a b) ->
-          let z = join . lift . fmap SpellT $ join uargs
-              z' = unSpellT $ evalSpell uCommSome f z
-           in Free (Face a b (pure z'))
+           in Free (Firebolt a b (pure z'))
         TFree TThrow -> Free (Throw uargs)
         TFree (TPutChar c) ->
           let z = join . lift . fmap SpellT $ join uargs

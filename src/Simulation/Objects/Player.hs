@@ -14,7 +14,6 @@ import Control.Monad.Fix
 import Simulation.Coordinates
 import App.Thread.SF
 import Control.Monad
-import Data.Maybe
 import Linear.Epsilon
 import Simulation.Objects.Player.Types
 import Simulation.Objects.SpellInterpreter
@@ -25,6 +24,7 @@ import qualified Data.IntMap.Strict as IntMap
 import qualified Data.IntSet as IntSet
 import Control.Applicative
 import Simulation.Objects.TargetSelector
+import Data.Bool
 
 gravityAcceleration :: Fractional a => a
 gravityAcceleration = 9.8
@@ -37,6 +37,10 @@ playerJumpVelocity = 10
 
 playerManaRegenRate :: Fractional a => a
 playerManaRegenRate = 5
+
+-- | Unwrap a continuous Maybe signal, defaulting to the last non-Nothing value.
+holdJust :: forall m a. Monad m => a -> SF m (Maybe a) a
+holdJust a0 = arr maybeToEvent >>> hold a0
 
 playerObj :: forall e m r. (Monad m, Monoid (ObjsInput e m r)) => Object e m r Player
 playerObj = loopPre playerMaxMana $ proc ((playerIn1, objsOutput), lastPlayerMana) -> do
@@ -53,10 +57,8 @@ playerObj = loopPre playerMaxMana $ proc ((playerIn1, objsOutput), lastPlayerMan
 
   -- Default facing direction is the direction of movement.
   let (V2 vx _) = simInput playerIn ^. moveVector
-      movingLeft = vx < 0
-      defaultFacingDirection = if movingLeft then V2 (-1) 0 else V2 1 0
-  facingDirectionOverride <- arr (>>= \x -> guard (not (nearZero x)) >> pure (normalize x)) <<< hold Nothing -< overrideFacingDirection playerIn
-  playerFacingDirection <- arr (uncurry fromMaybe) -< (defaultFacingDirection, facingDirectionOverride)
+  movingRight <- arr (\vx -> (vx > 0) <$ guard (not $ nearZero vx) ) -< vx
+  playerFacingDirection <- holdJust (V2 1 0) -< bool (V2 (-1) 0) (V2 1 0) <$> movingRight
 
   -- TODO: continuous regen?
   manaRegenEvent <- repeatedly 1 () -< ()

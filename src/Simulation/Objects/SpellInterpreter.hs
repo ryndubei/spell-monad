@@ -3,7 +3,6 @@
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE QuantifiedConstraints #-}
 {-# LANGUAGE ImpredicativeTypes #-}
-{-# LANGUAGE RecordWildCards #-}
 module Simulation.Objects.SpellInterpreter (spellInterpreterObj, module Simulation.Objects.SpellInterpreter.Types) where
 
 import FRP.BearRiver
@@ -175,9 +174,11 @@ handleSpell
         Throw e ->
           -- TODO: implement catch
           pure (def{ replResponse = Event (collapse e)}, mempty, Nothing)
-        Firebolt nxt'' -> do
+        Firebolt faceX faceY nxt'' -> do
           let s' = SpellT . join $ lift nxt''
-              fireboltVel = fireboltSpeed *^ playerFacingDirection
+              fireboltVel = if nearZero (V2 faceX faceY)
+                then fireboltSpeed *^ playerFacingDirection
+                else fireboltSpeed *^ normalize (V2 faceX faceY)
               playerPos = V2 playerX playerY
               fs = FireboltState { fireboltPos = playerPos, fireboltVel, fireboltRadius = 1, lifetime = 10 }
               fin = FireboltsInput { killFirebolts = noEvent, spawnFirebolts = Event [fs] }
@@ -210,15 +211,6 @@ handleSpell
               _1 .= s' c
               pure (def, mempty, Nothing) -- continue
             Seq.Empty -> pure (def, mempty, Just BlockedOnStdin) -- block
-        Face faceX faceY nxt'f -> do
-          let dir = V2 faceX faceY
-              pin =
-                if nearZero dir
-                  then mempty { overrideFacingDirection = Event Nothing}
-                  else mempty { overrideFacingDirection = Event (Just (V2 faceX faceY))}
-              s' = SpellT . join $ lift nxt'f
-          _1 .= s'
-          pure (def, mempty{player = pin}, Nothing)
         InputTarget nxt'v -> do
           let s' a b = SpellT . join . lift $ fmap (`uncurry` (a,b)) nxt'v
               atag = ActionTag t
