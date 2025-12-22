@@ -11,7 +11,7 @@ maintainer:         114586905+ryndubei@users.noreply.github.com
 category:           Game
 build-type:         Simple
 extra-doc-files:    README.md
-tested-with:        GHC==9.12.2
+tested-with:        GHC==9.10.3
 -- extra-source-files:
 
 common warnings
