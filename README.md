@@ -60,8 +60,6 @@ putChar :: Char -> Spell ()
 getChar :: Spell Char
 ```
 
-(`catch` is not yet implemented and will block indefinitely if run)
-
 To encourage writing pure code, only a limited number of side effects can be
 executed in a short period of time. Casting most side effects depletes the
 player's side effect bar, and running out of side effects throws an exception to
@@ -76,7 +74,6 @@ the player's code.
 
 ## Planned features
 
-- Implementation for `catch`.
 - Binding variables in the REPL.
 - Player code sandboxing. (already implemented for printing uncaught precise exceptions)
 - Code editor.

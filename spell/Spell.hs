@@ -22,6 +22,7 @@ module Spell
   , joinSpellT
   , spellTCollapseExceptT
   , inputTarget
+  , catchForFree
   ) where
 
 import Control.Monad.Trans.Free
@@ -37,6 +38,7 @@ import Control.Monad
 import Control.Category ((>>>))
 import Control.Monad.Trans.Except
 import Data.Functor
+import Data.Function
 
 -- | The Spell monad transformer, allowing interleaved side effects. For use by
 -- compiled code. Should not be exposed to the user.
@@ -182,6 +184,19 @@ catch s (h :: e -> Spell a) =
           Just m -> m
           Nothing -> throwSpell e
      in Spell . FreeT . Identity . Free $ Catch (coerce s) (coerce h') (Identity pure)
+
+-- | We don't actually need to have a dedicated Catch side effect: we can
+-- implement it directly like this. Unfortunately, we are parasitic rent-seekers
+-- who want to bill the player's mana at every opportunity, so this convenient
+-- function is for internal use only.
+catchForFree :: Monad m => SpellT e m a -> (e -> SpellT e m a) -> SpellT e m a
+catchForFree (SpellT s) h1 = s & iterTM \case
+  Throw e -> h1 e
+  Catch expr h next -> wrap (Catch expr h next)
+  Firebolt a b next -> wrap (Firebolt a b next)
+  PutChar c next -> wrap (PutChar c next)
+  GetChar next -> wrap (GetChar next)
+  InputTarget next -> wrap (InputTarget next)
 
 firebolt :: (Double, Double) -> Spell ()
 firebolt (a,b) = liftSpellF (Firebolt a b (Identity ()))

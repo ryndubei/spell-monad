@@ -11,7 +11,7 @@ import Control.Exception
 import Data.Functor.Product
 import Control.Monad.Reader
 import Control.Monad.Trans.Maybe
-import Spell (SpellT(..), SpellF (..))
+import Spell (SpellT(..), SpellF (..), catchForFree)
 import Control.Monad.State.Class
 import Data.Sequence (Seq)
 import qualified Data.Sequence as Seq
@@ -42,6 +42,9 @@ fireboltCost = 10
 
 fireboltSpeed :: Fractional a => a
 fireboltSpeed = 10
+
+catchCost :: Fractional a => a
+catchCost = 10
 
 spellInterpreterObj :: (Monad m, forall x y z. Monoid (ObjsInput x y z)) => Object e m r (SpellInterpreter e m r)
 spellInterpreterObj = continuousInterpreter
@@ -171,9 +174,7 @@ handleSpell
           , Nothing -- not blocking
           )
       Just (Free f) -> case f of
-        Throw e ->
-          -- TODO: implement catch
-          pure (def{ replResponse = Event (collapse e)}, mempty, Nothing)
+        Throw e -> pure (def{ replResponse = Event (collapse e)}, mempty, Nothing)
         Firebolt faceX faceY nxt'' -> do
           let s' = SpellT . join $ lift nxt''
               fireboltVel = if nearZero (V2 faceX faceY)
@@ -198,7 +199,24 @@ handleSpell
             , mempty{player = mempty{actions = Event [a]}}
             , Just (BlockedOnAction atag)
             )
-        Catch {} -> pure (def, mempty, Nothing) -- TODO: implement catch
+        -- 'h' is applied to every Throw in 'expr', including those from cancels
+        Catch expr h nxt'r -> do
+          let atag = ActionTag t
+              a :: Action
+              a = makeAtomicAction atag $ \_ -> do
+                mana <- get
+                if mana >= catchCost
+                  then do
+                    modify' (subtract catchCost)
+                    pure (mempty, Nothing)
+                  else pure (mempty, Just (SomeException OutOfSideEffects))
+              nxt''r r = SpellT . join . lift $ fmap ($ r) nxt'r
+              expr' = join $ lift expr
+              h' e = join . lift $ fmap ($ e) h
+              s' = catchForFree expr' h' >>= nxt''r
+          _1 .= s'
+          _4 %= Set.insert atag
+          pure (def, mempty{player = mempty{actions = Event [a]}}, Just (BlockedOnAction atag))
         PutChar c nxt'c -> do
           let s' = SpellT $ join $ lift nxt'c
           _1 .= s'
