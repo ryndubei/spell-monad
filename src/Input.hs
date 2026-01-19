@@ -1,7 +1,8 @@
-module Input (UserInput(..), userInputMoveVector) where
+module Input (UserInput(..), userInputMoveVector, nullInput) where
 
 import Control.Lens
 import Simulation.Coordinates
+import Linear.Epsilon
 
 -- | Aggregated input of the user over a short period of time.
 data UserInput = UserInput
@@ -30,3 +31,14 @@ instance Monoid UserInput where
     , jump = False
     , enter = False
     }
+
+-- | Whether the user input can be ignored.
+--
+-- >>> nullInput mempty
+-- True
+nullInput :: UserInput -> Bool
+nullInput UserInput{moveX, moveY, jump, enter}
+  | jump = False
+  | enter = False
+  | nearZero (V2 moveX moveY) = True
+  | otherwise = False

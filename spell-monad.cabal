@@ -57,7 +57,9 @@ library
                     , App.Thread
                     , App.Thread.Repl
                     , App.Thread.SF
+                    , App.Thread.Game
                     , DependentSums
+                    , Game
                     , Input
                     , Simulation
                     , Simulation.Coordinates
@@ -78,20 +80,26 @@ library
         DataKinds
     build-depends:    base
                     , spell-monad:spell
+                    , apecs
+                    , apecs-physics
                     , async
                     , bearriver ^>= 0.15
                     , brick
                     , bytestring
+                    , chronos
                     , containers
                     , data-clist
                     , data-default
                     , deepseq
+                    , dependent-map
                     , dunai
                     , effectful
                     , free
+                    , fused-effects
                     , hint
                     , lens
                     , linear
+                    , monad-coroutine
                     , mtl
                     , parallel
                     , profunctors
@@ -100,6 +108,7 @@ library
                     , stm
                     , text
                     , time
+                    , unliftio
                     , vector
                     , vty
                     , vty-crossplatform
@@ -116,6 +125,7 @@ executable spell-monad-exe
     ghc-options: -threaded
     build-depends:    base
                     , spell-monad
+                    , apecs
                     , async
                     , bearriver
                     , containers
