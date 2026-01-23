@@ -77,6 +77,8 @@ source-repository head
 
 
 library
+  ghc-options: -Wall
+
   exposed-modules:
     FRP.BearRiver
     FRP.BearRiver.Arrow
