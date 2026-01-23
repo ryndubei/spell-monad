@@ -1,11 +1,14 @@
 {-# LANGUAGE CPP        #-}
 {-# LANGUAGE Rank2Types #-}
+{-# LANGUAGE Arrows #-}
 -- The following warning is disabled so that we do not see warnings due to
 -- using ListT on an MSF to implement parallelism with broadcasting.
 #if __GLASGOW_HASKELL__ < 800
 {-# OPTIONS_GHC -fno-warn-warnings-deprecations #-}
 #else
 {-# OPTIONS_GHC -Wno-deprecations #-}
+{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE BlockArguments #-}
 #endif
 
 -- |
@@ -103,18 +106,21 @@ module FRP.BearRiver.Switches
 #if !MIN_VERSION_base(4,8,0)
 import Control.Applicative (Applicative (..), (<$>))
 #endif
-import Control.Arrow              (arr, first)
 import Control.Monad.Trans.Class  (lift)
 import Control.Monad.Trans.Reader (ask, runReaderT)
 import Data.Traversable           as T
+import Control.Arrow
+import qualified Data.Bifunctor as Bifunctor
 
 -- Internal imports (dunai)
 import Control.Monad.Trans.MSF                 (local, performOnFirstSample)
 import Control.Monad.Trans.MSF.List            (sequenceS, widthFirst)
 import Data.MonadicStreamFunction.InternalCore (MSF (MSF, unMSF))
+import Data.MonadicStreamFunction.Core         (morphS)
+import qualified Control.Monad.Trans.MSF.Except as MSF
 
 -- Internal imports
-import FRP.BearRiver.Basic        ((>=-))
+import FRP.BearRiver.Basic        ((>=-), initially)
 import FRP.BearRiver.Event        (Event (..), noEventSnd)
 import FRP.BearRiver.InternalCore (DTime, SF)
 
@@ -122,10 +128,10 @@ import FRP.BearRiver.InternalCore (DTime, SF)
 
 -- | Basic switch.
 --
--- By default, the first signal function is applied. Whenever the second value
--- in the pair actually is an event, the value carried by the event is used to
+-- By default, the first signal function is applied. Whenever the value
+-- of the sum is Right, the value carried is used to
 -- obtain a new signal function to be applied *at that time and at future
--- times*. Until that happens, the first value in the pair is produced in the
+-- times*. Until that happens, the Left is produced in the
 -- output signal.
 --
 -- Important note: at the time of switching, the second signal function is
@@ -136,12 +142,8 @@ import FRP.BearRiver.InternalCore (DTime, SF)
 --
 -- Remember: The continuation is evaluated strictly at the time
 -- of switching!
-switch :: Monad m => SF m a (b, Event c) -> (c -> SF m a b) -> SF m a b
-switch sf sfC = MSF $ \a -> do
-  (o, ct) <- unMSF sf a
-  case o of
-    (_, Event c) -> local (const 0) (unMSF (sfC c) a)
-    (b, NoEvent) -> return (b, switch ct sfC)
+switch :: Monad m => SF m a (Either b c) -> (c -> SF m a b) -> SF m a b
+switch sf sfC = MSF.switch sf (\c -> morphS (local (const 0)) (sfC c))
 
 -- | Switch with delayed observation.
 --
@@ -154,33 +156,30 @@ switch sf sfC = MSF $ \a -> do
 -- Until that happens, the first value in the pair is produced in the output
 -- signal.
 --
--- Important note: at the time of switching, the second signal function is used
--- immediately, but the current input is fed by it (even though the actual
--- output signal value at time 0 is discarded).
+-- Note: Unlike in regular Yampa and Bearriver, the second signal function is
+-- not used immediately, similar to Dunai's dSwitch.
 --
--- If that second SF can also switch at time zero, then a double (nested)
--- switch might take place. If the second SF refers to the first one, the
--- switch might take place infinitely many times and never be resolved.
---
--- Remember: The continuation is evaluated strictly at the time
--- of switching!
+-- Note 2: Time information between switching is lost in order for the
+-- second signal function to have t=0 at the first tick.
+-- By continuity, this should increasingly not matter as dt->0.
 dSwitch :: Monad m => SF m a (b, Event c) -> (c -> SF m a b) -> SF m a b
-dSwitch sf sfC = MSF $ \a -> do
-  (o, ct) <- unMSF sf a
-  case o of
-    (b, Event c) -> do (_, ct') <- local (const 0) (unMSF (sfC c) a)
-                       return (b, ct')
-    (b, NoEvent) -> return (b, dSwitch ct sfC)
+dSwitch sf sfC =
+  MSF.dSwitch
+    (sf >>> arr (Bifunctor.second \case Event c -> Just c; NoEvent -> Nothing))
+    (\c -> morphS (local (const 0)) (sfC c))
 
 -- | Recurring switch.
 --
 -- Uses the given SF until an event comes in the input, in which case the SF in
 -- the event is turned on, until the next event comes in the input, and so on.
 --
--- See <https://wiki.haskell.org/Yampa#Switches> for more information on how
--- this switch works.
-rSwitch :: Monad m => SF m a b -> SF m (a, Event (SF m a b)) b
-rSwitch sf = switch (first sf) ((noEventSnd >=-) . rSwitch)
+-- The output is an Event precisely at the time of switching.
+rSwitch :: Monad m => SF m a b -> SF m (a, Event (SF m a b)) (b, Event b)
+rSwitch sf = switch
+  (first sf >>> arr \case
+    (b, NoEvent) -> Left (b, NoEvent)
+    (b, Event sf') -> Right (b, sf')) \(b, sf') ->
+      arr noEventSnd >>> rSwitch sf' >>> second (initially (Event b))
 
 -- | Recurring switch with delayed observation.
 --
@@ -188,11 +187,8 @@ rSwitch sf = switch (first sf) ((noEventSnd >=-) . rSwitch)
 -- the event is turned on, until the next event comes in the input, and so on.
 --
 -- Uses decoupled switch ('dSwitch').
---
--- See <https://wiki.haskell.org/Yampa#Switches> for more information on how
--- this switch works.
 drSwitch :: Monad m => SF m a b -> SF m (a, Event (SF m a b)) b
-drSwitch sf = dSwitch (first sf) ((noEventSnd >=-) . drSwitch)
+drSwitch sf = dSwitch (first sf) drSwitch
 
 -- | Call-with-current-continuation switch.
 --
