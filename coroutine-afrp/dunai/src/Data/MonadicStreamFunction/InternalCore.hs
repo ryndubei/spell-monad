@@ -149,7 +149,7 @@ embed sf (a:as) = do
   return (b:bs)
 
 -- | Run an 'MSF' indefinitely passing a unit-carrying input stream.
-reactimate :: Monad m => MSF m () () -> m ()
+reactimate :: Monad m => MSF m () () -> m v
 reactimate sf = do
   (_, sf') <- unMSF sf ()
   reactimate sf'
