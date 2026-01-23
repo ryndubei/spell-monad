@@ -112,11 +112,11 @@ library
     Data.MonadicStreamFunction
     Data.MonadicStreamFunction.Async
     Data.MonadicStreamFunction.Core
+    Data.MonadicStreamFunction.Instances.Additive
     Data.MonadicStreamFunction.Instances.ArrowChoice
     Data.MonadicStreamFunction.Instances.ArrowLoop
     Data.MonadicStreamFunction.Instances.ArrowPlus
     Data.MonadicStreamFunction.Instances.Num
-    Data.MonadicStreamFunction.Instances.VectorSpace
     Data.MonadicStreamFunction.InternalCore
     Data.MonadicStreamFunction.Parallel
     Data.MonadicStreamFunction.ReactHandle
@@ -129,7 +129,7 @@ library
       base >= 4.6 && < 5
     , MonadRandom         >= 0.2   && < 0.7
     , list-transformer    >= 1.1.1 && < 1.2
-    , simple-affine-space >= 0.2   && < 0.3
+    , linear
     , transformers        >= 0.3   && < 0.7
     , transformers-base   >= 0.4   && < 0.5
     , monad-coroutine

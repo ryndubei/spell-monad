@@ -12,7 +12,6 @@ module Data.MonadicStreamFunction.Util where
 import Control.Arrow    (arr, returnA, (&&&), (<<<), (>>>))
 import Control.Category (id, (.))
 import Control.Monad    (when)
-import Data.VectorSpace (VectorSpace, zeroVector, (^+^))
 import Prelude          hiding (id, (.))
 
 #if !MIN_VERSION_base(4,8,0)
@@ -97,12 +96,12 @@ count :: (Num n, Monad m) => MSF m a n
 count = arr (const 1) >>> accumulateWith (+) 0
 
 -- | Sums the inputs, starting from zero.
-sumS :: (VectorSpace v s, Monad m) => MSF m v v
-sumS = sumFrom zeroVector
+sumS :: (Num v, Monad m) => MSF m v v
+sumS = sumFrom 0
 
 -- | Sums the inputs, starting from an initial vector.
-sumFrom :: (VectorSpace v s, Monad m) => v -> MSF m v v
-sumFrom = accumulateWith (^+^)
+sumFrom :: (Num v, Monad m) => v -> MSF m v v
+sumFrom = accumulateWith (+)
 
 -- ** Folding for monoids
 
