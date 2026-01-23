@@ -76,6 +76,7 @@ import           Control.Category          as C (id, (.))
 import           Control.Monad.Base        (MonadBase, liftBase)
 import           Control.Monad.Trans.Class (MonadTrans, lift)
 import           Prelude                   hiding (id, sum, (.))
+import           Data.Profunctor
 
 #if !MIN_VERSION_base(4,8,0)
 import Control.Applicative (Applicative(..))
@@ -105,6 +106,10 @@ instance Monad m => Arrow (MSF m) where
 -- | 'Functor' instance for 'MSF's.
 instance Monad m => Functor (MSF m a) where
   fmap f msf = msf >>> arr f
+
+instance Monad m => Profunctor (MSF m) where
+  rmap f msf = fmap f msf
+  lmap f msf = arr f >>> msf
 
 -- | 'Applicative' instance for 'MSF's.
 instance (Functor m, Monad m) => Applicative (MSF m a) where
