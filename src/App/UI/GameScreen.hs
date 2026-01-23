@@ -36,6 +36,9 @@ import Brick.Widgets.ProgressBar (progressBar, progressCompleteAttr, progressInc
 import Control.Monad.Reader
 import Data.Time
 import Numeric (showGFloat)
+import Game
+import Control.Monad.ST (runST)
+import qualified Data.Vector.Mutable as MV
 
 data Name
   = TerminalCursor
@@ -47,7 +50,7 @@ data Name
 
 data AppState = AppState
   { _gameExit :: !(Maybe GameExit)
-  , _simState :: !SimState
+  , _simState :: !VisibleGameState
   , _windowSize :: DisplayRegion
   , _terminalFocus :: TerminalFocus
   , _term :: Terminal
@@ -63,7 +66,7 @@ data GameExit = ExitDesktop | ExitMainMenu
 
 makeLenses ''AppState
 
-withGameUI :: AppThread -> ReplThread -> UTCTime -> SimState -> (BrickThread (Maybe GameExit) (Either SimState [SimEvent]) AppUserInput -> IO a) -> IO a
+withGameUI :: AppThread -> ReplThread -> UTCTime -> VisibleGameState -> (BrickThread (Maybe GameExit) VisibleGameState AppUserInput -> IO a) -> IO a
 withGameUI th rth t0 ss0 k = do
   v <- appThreadVty th
   _windowSize <- displayBounds (outputIface v)
@@ -109,7 +112,7 @@ updateFPS = do
       fps = 1 / dt
   displayFPS .= fps
 
-theapp :: ReplThread -> TChan AppUserInput -> App AppState (Either ReplEvent (Either SimState [SimEvent])) Name
+theapp :: ReplThread -> TChan AppUserInput -> App AppState (Either ReplEvent VisibleGameState) Name
 theapp rth c = App {..}
   where
     appDraw s =
@@ -127,7 +130,8 @@ theapp rth c = App {..}
       ]
 
     statusBars s =
-      let SimState{playerMana, playerMaxMana} = s ^. simState
+      let playerMana = 100
+          playerMaxMana = 100
           manaBar = (clamp 0 1 $ realToFrac playerMana / realToFrac playerMaxMana)
        in hLimitPercent 30
         $ progressBar (Just "Side effects") manaBar
@@ -180,14 +184,9 @@ theapp rth c = App {..}
           vScrollBy (viewportScroll TerminalViewport) (-1)
         _ -> pure ()
 
-    appHandleEvent (AppEvent (Right (Left ss))) = do
+    appHandleEvent (AppEvent (Right vgs)) = do
       updateFPS
-      L.assign simState ss
-    appHandleEvent (AppEvent (Right (Right se))) = do
-      let se' = mconcat se
-       in case se' of
-        SimEvent { spellOutput } -> do
-          Brick.zoom term (traverse_ pushOutput spellOutput)
+      L.assign simState vgs
     appHandleEvent (AppEvent (Left ReplStatusChange)) =
       get >>= liftIO . atomically . handleReplStatusChange rth >>= put
     appHandleEvent (AppEvent (Left (ReplOutput cs))) =
@@ -320,8 +319,8 @@ unblockTerm = do
   prompt .= unblockedPrompt
   blocked .= False
 
-drawSimState :: SimState -> Widget Name
-drawSimState SimState{..} =
+drawSimState :: VisibleGameState -> Widget Name
+drawSimState VisibleGameState{..} =
   Widget
     { hSize = Greedy
     , vSize = Greedy
@@ -341,11 +340,17 @@ drawSimState SimState{..} =
         xs :: V.Vector Double
         xs = V.map ((+ cameraX) . (/ 2) . fromIntegral) $ V.enumFromN (- (width `div` 2)) width
 
-        dists :: V.Vector (V.Vector (ObjectIdentifier, Double))
-        dists = flip V.map ys \y -> flip V.map xs \x -> sdf (x,y)
+        drawn :: V.Vector (V.Vector (Maybe Model))
+        drawn = runST do
+          mv <- MV.new (V.length xs * V.length ys)
+          mvs <- V.iforM ys \iy y -> do
+            let mv' = MV.slice (V.length xs * iy) (V.length xs) mv
+            V.iforM_ xs \ix x -> do
+              undefined
+          undefined
 
         -- ObjectIdentifiers together with the string lengths to draw
-        lineSliceLengths :: [V.Vector (Maybe ObjectIdentifier, Int)]
+        lineSliceLengths :: [V.Vector (Maybe Model, Int)]
         lineSliceLengths = flip (parMap rdeepseq) (V.toList dists) $ V.unfoldrN width \row ->
           let u = V.uncons row
           in case u of
@@ -355,7 +360,7 @@ drawSimState SimState{..} =
                in Just ((toDraw hrow, 1 + length lrow), rrow)
             Nothing -> Nothing
 
-        lineSlice :: Maybe ObjectIdentifier -> Int -> Image
+        lineSlice :: Maybe Model -> Int -> Image
         -- cannot simply do "translateX len mempty". I don't know why.
         lineSlice Nothing len = translateX len $ text' defAttr mempty
         lineSlice (Just oid) len = text' (attrMapLookup (objectIdToAttr oid) attrmap) $ T.replicate len "█"
@@ -365,10 +370,10 @@ drawSimState SimState{..} =
 
        in displayedSimState
 
-objectIdToAttr :: ObjectIdentifier -> AttrName
-objectIdToAttr Player = attrName "Player"
-objectIdToAttr Firebolt = attrName "Firebolt"
-objectIdToAttr TargetSelector = attrName "TargetSelector"
+objectIdToAttr :: Model -> AttrName
+objectIdToAttr WizardModel = attrName "WizardModel"
+objectIdToAttr FireboltModel = attrName "FireboltModel"
+objectIdToAttr (ShapeModel _) = attrName "ShapeModel"
 
 directInput :: Key -> [Modifier] -> Maybe UserInput
 directInput KUp _ = Just $ mempty { moveY = 1 }

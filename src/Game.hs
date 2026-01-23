@@ -7,7 +7,7 @@
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE LambdaCase #-}
 
-module Game (runSystem, game, initWorld, World) where
+module Game (runSystem, game, initWorld, World, VisibleGameState(..), Model(..)) where
 
 import Apecs
 import Input
@@ -26,18 +26,18 @@ import Control.Monad.Trans.Except
 import Control.Monad.Trans.MSF (runReaderS)
 import Data.MonadicStreamFunction.InternalCore (MSF(..))
 import Apecs.Physics
+import Data.Foldable
+import Data.Sequence
+import App.Thread.Repl (InterpretRequest(..))
+import Control.Applicative
 
 data Player = Player
 instance Component Player where
   type Storage Player = Map Player
 
-data Model = WizardModel | FireboltModel
+data Model = WizardModel | FireboltModel | ShapeModel [Convex]
 instance Component Model where
   type Storage Model = Map Model
-
-data Mana = Mana { currentMana :: Double, maximumMana :: Double }
-instance Component Mana where
-  type Storage Mana = Map Mana
 
 -- | The entity possessing this unique component is the one to which user input
 -- gets routed to.
@@ -45,16 +45,12 @@ newtype Input = Input SimInput
 instance Component Input where
   type Storage Input = Unique Input
 
-makeWorld "World"
-  [ ''Player, ''Physics, ''Model, ''Mana, ''Input]
+makeWorld "World" [ ''Player, ''Physics, ''Model, ''Input]
 
-type All = (Player, Position, Model, Mana, Gravity, Input)
-
-destroyEntity :: forall w m. Destroy w m All => Entity -> SystemT w m ()
-destroyEntity ety = destroy ety (Proxy @All)
-
-newtype VisibleGameState = VisibleGameState
+data VisibleGameState = VisibleGameState
   { models :: [(Model, Position)]
+  , cameraX :: !Double
+  , cameraY :: !Double
   }
 
 -- | Move between monads in an SF, while keeping time information.
@@ -100,9 +96,24 @@ seconds Timespan{getTimespan} = (fromIntegral getTimespan) / 10^(9 :: Int)
 getVisibleGameState :: MonadIO m => SystemT World m VisibleGameState
 getVisibleGameState = do
   models <- cfold (flip (:)) []
+  let cameraX = 0
+      cameraY = 0
   pure VisibleGameState{..}
 
-game :: MonadIO m => Coroutine (Request VisibleGameState (Timespan, UserInput)) (SystemT World m) void
+data GameInput = GameInput
+  { gameInput :: Event UserInput
+  , termStdin :: Event (Seq Char)
+  , interpretRequest :: Event (Maybe InterpretRequest)
+  }
+
+instance Semigroup GameInput where
+  (<>) gi1 gi2 = GameInput
+    { gameInput = mergeBy (<>) (gameInput gi1) (gameInput gi2)
+    , termStdin = mergeBy (<>) (termStdin gi1) (termStdin gi2)
+    , interpretRequest = mergeBy (<|>) (interpretRequest gi1) (interpretRequest gi2)
+    }
+
+game :: MonadIO m => Coroutine (Request VisibleGameState (Timespan, GameInput)) (SystemT World m) void
 game = do
   lift initGame
   w inputSmoother $
@@ -126,22 +137,46 @@ game = do
           weaver (k1 u) (k2 u)
 
 -- Update any 'Input' components with the current smoothed user input.
-inputSmoother :: MonadIO m => Coroutine (Await (Timespan, UserInput)) (SystemT World m) void
+inputSmoother :: MonadIO m => Coroutine (Await (Timespan, GameInput)) (SystemT World m) void
 inputSmoother =
   flip pogoStickM processInput' \(Request si k) -> do
       lift $ cmap \(Input _) -> Input si
-      (t, u) <- await
-      let u' = eventIfNonNull u
-      pure $ k (t, u')
+      (t, GameInput{gameInput = u}) <- await
+      pure $ k (t, u)
   where
-    eventIfNonNull u = if nullInput u then NoEvent else Event u
     processInput' = sfToCoroutine NoEvent (generaliseSF processInput)
+
+playerShape :: [Convex]
+playerShape = [oCircle (V2 0 0.9) 0.9, oCircle (V2 0 1.5) 1]
+
+levelGeometry :: [Convex]
+levelGeometry = [ oRectangle (V2 (-10) (-10)) (V2 20 20) ]
 
 initGame :: MonadIO m => SystemT World m ()
 initGame = do
-  newEntity_ (Player, Input mempty, WizardModel, Mana 100 100)
+
+  player <- newEntity
+    ( Player
+    , ShapeModel playerShape
+    , DynamicBody
+    , Position (V2 0 0)
+    , Density 1
+    , Moment (1 / 0) -- forces player to always remain upright
+    , Friction 1
+    )
+  cmap \Player -> Input mempty
+  traverse_ (newEntity_ . Shape player) playerShape
+
+  level <- newEntity (KinematicBody, Position 0, ShapeModel levelGeometry, Friction 1)
+  traverse_ (newEntity_ . Shape level) levelGeometry
+
   Apecs.set global earthGravity
 
 tick :: MonadIO m => Timespan -> SystemT World m ()
 tick dt = do
-  undefined
+  cmap \(Input si) -> SurfaceVelocity (si ^. moveVector)
+  cmapIf (\(Input SimInput{simJump}) -> (simJump == Event ())) $ \(Input _) -> Force (V2 0 (1000*seconds dt))
+
+  stepPhysics (seconds dt)
+  
+  
