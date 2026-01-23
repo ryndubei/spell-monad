@@ -261,21 +261,21 @@ reactimateExcept msfe = do
 reactimateB :: Monad m => MSF m () Bool -> m ()
 reactimateB sf = reactimateExcept $ try $ liftTransS sf >>> throwOn ()
 
--- | Run first MSF until the second value in the output tuple is @Just c@ (for
+-- | Run first MSF until the value in the output is @Left c@ (for
 -- some @c@), then start the second MSF.
 --
 -- Analog to Yampa's
 -- [@switch@](https://hackage.haskell.org/package/Yampa/docs/FRP-Yampa-Switches.html#v:switch),
--- with 'Maybe' instead of @Event@.
-switch :: Monad m => MSF m a (b, Maybe c) -> (c -> MSF m a b) -> MSF m a b
+-- that does not discard any output.
+switch :: Monad m => MSF m a (Either b c) -> (c -> MSF m a b) -> MSF m a b
 switch sf f = catchS ef f
   where
-    -- Run sf, throwing an exception if there is a no-Nothing value in the
-    -- second element of the pair, and returning the first element otherwise.
+    -- Run sf, throwing an exception if there is a Right value, and returning
+    -- the Left otherwise.
     ef = proc a -> do
-           (b, me)  <- liftTransS sf  -< a
-           throwMaybe                 -< me
-           returnA                    -< b
+           bc <- liftTransS sf             -< a
+           b  <- arrM (either pure throwE) -< bc
+           returnA                         -< b
 
 -- | Run first MSF until the second value in the output tuple is @Just c@ (for
 -- some @c@), then start the second MSF.
