@@ -1,4 +1,5 @@
 {-# OPTIONS_GHC -fno-warn-orphans #-}
+{-# LANGUAGE TypeFamilies #-}
 -- |
 -- Copyright  : (c) Ivan Perez and Manuel Baerenz, 2016
 -- License    : BSD3
@@ -26,7 +27,8 @@
 module Data.MonadicStreamFunction.Instances.Additive where
 
 -- External imports
-import Linear (Additive(zero))
+import Linear
+import Linear.Affine
 
 -- Internal imports
 import Control.Arrow.Util              (constantly)
@@ -34,3 +36,9 @@ import Data.MonadicStreamFunction.Core (MSF)
 
 -- | Vector-space instance for 'MSF's.
 instance Monad m => Additive (MSF m a) where zero = constantly 0
+
+instance Monad m => Affine (MSF m a) where
+  type Diff (MSF m a) = MSF m a
+  (.-.) = (^-^)
+  (.+^) = (^+^)
+  (.-^) = (^-^)
