@@ -1,4 +1,6 @@
 packages:
     spell-monad.cabal
+    coroutine-afrp/dunai/coroutine-dunai.cabal
+    coroutine-afrp/bearriver/coroutine-bearriver.cabal
 
 write-ghc-environment-files: always

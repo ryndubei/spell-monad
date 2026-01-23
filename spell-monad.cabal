@@ -83,7 +83,7 @@ library
                     , apecs
                     , apecs-physics
                     , async
-                    , bearriver ^>= 0.15
+                    , coroutine-bearriver
                     , brick
                     , bytestring
                     , chronos
@@ -92,7 +92,7 @@ library
                     , data-default
                     , deepseq
                     , dependent-map
-                    , dunai
+                    , coroutine-dunai
                     , effectful
                     , free
                     , fused-effects
