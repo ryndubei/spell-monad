@@ -5,6 +5,7 @@
 {-# LANGUAGE BlockArguments #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE MultiWayIf #-}
+{-# LANGUAGE LambdaCase #-}
 
 module Game (runSystem, game, initWorld, World) where
 
@@ -16,31 +17,19 @@ import Control.Monad.Fix
 import Linear
 import Simulation.Input
 import FRP.BearRiver
-import Data.Monoid
 import Control.Lens
 import Control.Monad.Coroutine.SuspensionFunctors
 import Control.Monad.Coroutine
 import Data.Void
-import qualified Control.Monad.Trans.State.Lazy as State.Lazy
 import Control.Monad.Trans.Reader (mapReaderT)
 import Control.Monad.Trans.Except
-import Control.Monad.Trans.MSF (reactimateB, runReaderS)
-import Control.Monad
+import Control.Monad.Trans.MSF (runReaderS)
+import Data.MonadicStreamFunction.InternalCore (MSF(..))
+import Apecs.Physics
 
 data Player = Player
 instance Component Player where
   type Storage Player = Map Player
-
-newtype Position = Position (V2 Double)
-instance Component Position where
-  type Storage Position = Map Position
-
--- | Velocity caused by gravity.
---
--- Not possessing this component causes the entity to be unaffected by gravity.
-data GravVelocity = Grounded | GravVelocity (V2 Double)
-instance Component GravVelocity where
-  type Storage GravVelocity = Map GravVelocity
 
 data Model = WizardModel | FireboltModel
 instance Component Model where
@@ -50,23 +39,19 @@ data Mana = Mana { currentMana :: Double, maximumMana :: Double }
 instance Component Mana where
   type Storage Mana = Map Mana
 
-newtype Gravity = Gravity (Sum (V2 Double)) -- The Sum wrapper specifies the monoid, as Global components default to mempty.
-  deriving (Semigroup, Monoid)
-instance Component Gravity where
-  type Storage Gravity = Global Gravity
-
 -- | The entity possessing this unique component is the one to which user input
 -- gets routed to.
 newtype Input = Input SimInput
 instance Component Input where
   type Storage Input = Unique Input
 
-newtype ElapsedTime = ElapsedTime Timespan deriving (Semigroup, Monoid)
-instance Component ElapsedTime where
-  type Storage ElapsedTime = Global ElapsedTime
-
 makeWorld "World"
-  [ ''Player, ''Position, ''GravVelocity, ''Model, ''Mana, ''Gravity, ''Input, ''ElapsedTime]
+  [ ''Player, ''Physics, ''Model, ''Mana, ''Input]
+
+type All = (Player, Position, Model, Mana, Gravity, Input)
+
+destroyEntity :: forall w m. Destroy w m All => Entity -> SystemT w m ()
+destroyEntity ety = destroy ety (Proxy @All)
 
 newtype VisibleGameState = VisibleGameState
   { models :: [(Model, Position)]
@@ -77,21 +62,19 @@ morphSF :: (Monad m2, Monad m1) => (forall c. m1 c -> m2 c) -> SF m1 a b -> SF m
 -- I think this would be as safe as morphS, but who knows
 morphSF nat = morphS (mapReaderT nat) 
 
-msfToCoroutine :: Monad m => a -> MSF m a b -> Coroutine (Request b a) m void
-msfToCoroutine a0 msf = do
-  -- Lazy because we don't want to do anything odd with semantics
-  -- that 'reactimateB' doesn't already do.
-  flip State.Lazy.evalStateT a0 $
-    reactimateB $ proc () -> do
-      a <- constM State.Lazy.get -< ()
-      b <- morphS (lift . lift) msf -< a
-      a' <- arrM (lift . request) -< b
-      arrM State.Lazy.put -< a'
-      returnA -< False -- do not terminate
-  error "unreachable"
+-- | Isomorphism.
+msfToCoroutine  :: Monad m => MSF m a b -> a -> Coroutine (Request b a) m void
+msfToCoroutine MSF{unMSF} a0 = Coroutine . fmap (\(b, msf') -> Left $ Request b (msfToCoroutine msf')) $ unMSF a0
+-- | Isomorphism.
+coroutineToMSF :: Monad m => (a -> Coroutine (Request b a) m Void) -> MSF m a b
+coroutineToMSF f = MSF \a0 ->
+  f a0 & \(Coroutine{resume}) ->
+    resume <&> \case
+      Right v -> absurd v
+      Left (Request b k) -> (b, coroutineToMSF k)
 
 sfToCoroutine :: Monad m => a -> SF m a b -> Coroutine (Request b (Timespan, a)) m void
-sfToCoroutine a0 sf = msfToCoroutine (Timespan 0, a0) sf'
+sfToCoroutine a0 sf = msfToCoroutine sf' (Timespan 0, a0)
   where
     sf' = arr (first seconds) >>> runReaderS sf
 
@@ -122,12 +105,12 @@ getVisibleGameState = do
 game :: MonadIO m => Coroutine (Request VisibleGameState (Timespan, UserInput)) (SystemT World m) void
 game = do
   lift initGame
-  w inputSmoother $ w updateTimespan $
+  w inputSmoother $
     fix \k -> do
       s <- lift getVisibleGameState
-      _ <- request s
+      (dt, _) <- request s
 
-      lift tick
+      lift $ tick dt
 
       k
   where
@@ -154,28 +137,11 @@ inputSmoother =
     eventIfNonNull u = if nullInput u then NoEvent else Event u
     processInput' = sfToCoroutine NoEvent (generaliseSF processInput)
 
-updateTimespan :: MonadIO m => Coroutine (Await (Timespan, u)) (SystemT World m) void
-updateTimespan = forever do
-  (dt', _) <- await
-  lift $ modify global \(ElapsedTime dt) -> ElapsedTime (dt <> dt')
-
 initGame :: MonadIO m => SystemT World m ()
 initGame = do
-  newEntity_ (Player, Input mempty, WizardModel, Position 0, GravVelocity 0, Mana 100 100)
-  modify global \(Gravity _) -> Gravity (Sum (V2 0 (-9.8)))
+  newEntity_ (Player, Input mempty, WizardModel, Mana 100 100)
+  Apecs.set global earthGravity
 
-tick :: MonadIO m => SystemT World m ()
-tick = do
-  cmap \(ggv :: GravVelocity, Position p) -> case ggv of
-    Grounded ->
-      if nearZero (p ^. _y) || (p ^. _y) < 0
-        then Left ()
-        else Right $ Right (GravVelocity 0)
-    GravVelocity gv ->
-      if (gv ^. _y < 0) && (nearZero (p ^. _y) || (p ^. _y) < 0)
-        then Right $ Left (Grounded, Position $ (_y .~ 0) p)
-        else Left ()
-  
-  -- cmap \(GravVelocity gv, Gravity (Sum g)) -> (GravVelocity (gv + g ^* (seconds dt)))
-  
-  -- cmap \(GravVelocity gv, Position p) -> (Position (p + gv ^* (seconds dt)))
+tick :: MonadIO m => Timespan -> SystemT World m ()
+tick dt = do
+  undefined
