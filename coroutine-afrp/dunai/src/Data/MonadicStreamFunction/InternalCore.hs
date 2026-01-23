@@ -1,4 +1,6 @@
 {-# LANGUAGE Rank2Types #-}
+{-# LANGUAGE BlockArguments #-}
+{-# LANGUAGE LambdaCase #-}
 -- |
 -- Copyright  : (c) Ivan Perez and Manuel Baerenz, 2016
 -- License    : BSD3
@@ -47,6 +49,11 @@ module Data.MonadicStreamFunction.InternalCore where
 -- External imports
 import Control.Category (Category (..))
 import Prelude          hiding (id, sum, (.))
+import Control.Monad.Coroutine (Coroutine(..))
+import Control.Monad.Coroutine.SuspensionFunctors (Request(..))
+import Data.Void (Void, absurd)
+import Data.Functor ((<&>))
+import Data.Function ((&))
 
 -- * Definitions
 
@@ -56,6 +63,19 @@ import Prelude          hiding (id, sum, (.))
 -- terminate. See 'reactimate' and 'reactimateB' for details. In general,
 -- calling the value constructor 'MSF' or the function 'unMSF' is discouraged.
 data MSF m a b = MSF { unMSF :: a -> m (b, MSF m a b) }
+
+-- TODO: change internal MSF representation to Coroutine
+
+-- | Isomorphism.
+msfToCoroutine  :: Monad m => MSF m a b -> a -> Coroutine (Request b a) m void
+msfToCoroutine msf a0 = Coroutine . fmap (\(b, msf') -> Left $ Request b (msfToCoroutine msf')) $ (unMSF msf) a0
+-- | Isomorphism.
+coroutineToMsf :: Monad m => (a -> Coroutine (Request b a) m Void) -> MSF m a b
+coroutineToMsf f = MSF \a0 ->
+  f a0 & \co ->
+    (resume co) <&> \case
+      Right v -> absurd v
+      Left (Request b k) -> (b, coroutineToMsf k)
 
 -- Instances
 

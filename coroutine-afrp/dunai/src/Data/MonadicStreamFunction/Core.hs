@@ -63,6 +63,9 @@ module Data.MonadicStreamFunction.Core
   , reactimate
   , embed
   , module X
+    -- * Isomorphism with coroutines
+  , msfToCoroutine
+  , coroutineToMsf
   )
   where
 
@@ -80,7 +83,7 @@ import Control.Applicative (Applicative(..))
 
 -- Internal imports
 import Data.MonadicStreamFunction.InternalCore (MSF, embed, feedback, morphGS,
-                                                reactimate)
+                                                reactimate, msfToCoroutine, coroutineToMsf)
 
 -- * Definitions
 
