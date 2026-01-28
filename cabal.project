@@ -1,4 +1,5 @@
 packages:
     spell-monad.cabal
+    dunai/dunai-frp-bearriver/bearriver.cabal
 
 write-ghc-environment-files: always

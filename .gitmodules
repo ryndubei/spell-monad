@@ -1,0 +1,3 @@
+[submodule "dunai"]
+	path = dunai
+	url = git@github.com:ryndubei/dunai.git
