@@ -35,12 +35,12 @@ data Blocked
 -- still valid or not by itself).
 newtype Action = Action
   (forall e m r. Task
-    (State Double)
     (Event SomeException, ObjsOutput e m r)
     (ObjsInput e m r)
+    (State Double)
     ())
 
-unAction :: Action -> Task (State Double) (Event SomeException, ObjsOutput e m r) (ObjsInput e m r) ()
+unAction :: Action -> Task (Event SomeException, ObjsOutput e m r) (ObjsInput e m r) (State Double) ()
 unAction (Action t) = t
 
 data instance ObjInput (SpellInterpreter e m r) = SpellInterpreterInput

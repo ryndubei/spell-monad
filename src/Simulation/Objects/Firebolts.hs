@@ -48,7 +48,7 @@ fireboltObj :: FireboltState -> SF Identity () FireboltState
 fireboltObj s0 = proc () -> do
   dlife <- time -< ()
   dpos <- integral -< fireboltVel s0
-  let pos = fireboltPos s0  ^+^ dpos
+  let pos = fireboltPos s0  + dpos
       life = lifetime s0 - dlife
   let s = s0 { fireboltPos = pos, lifetime = life }
   returnA -< s

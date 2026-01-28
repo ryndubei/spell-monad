@@ -3,6 +3,7 @@
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE QuantifiedConstraints #-}
 {-# LANGUAGE ImpredicativeTypes #-}
+{-# LANGUAGE LambdaCase #-}
 module Simulation.Objects.SpellInterpreter (spellInterpreterObj, module Simulation.Objects.SpellInterpreter.Types) where
 
 import FRP.BearRiver
@@ -36,6 +37,8 @@ import Simulation.Objects.TargetSelector
 import Data.Either
 import Data.Maybe
 import Control.Monad.Trans.State.Strict (StateT, State)
+import Linear.Metric (normalize)
+import Control.Monad.Trans.Except
 
 fireboltCost :: Fractional a => a
 fireboltCost = 10
@@ -178,8 +181,8 @@ handleSpell
         Firebolt faceX faceY nxt'' -> do
           let s' = SpellT . join $ lift nxt''
               fireboltVel = if nearZero (V2 faceX faceY)
-                then fireboltSpeed *^ playerFacingDirection
-                else fireboltSpeed *^ normalize (V2 faceX faceY)
+                then fireboltSpeed * playerFacingDirection
+                else fireboltSpeed * normalize (V2 faceX faceY)
               playerPos = V2 playerX playerY
               fs = FireboltState { fireboltPos = playerPos, fireboltVel, fireboltRadius = 1, lifetime = 10 }
               fin = FireboltsInput { killFirebolts = noEvent, spawnFirebolts = Event [fs] }
@@ -249,39 +252,28 @@ makeAtomicAction
   :: (forall e m r. Monoid (ObjsInput e m r))
   => ActionTag
   -> (forall e m r. ObjsOutput e m r -> State Double (ObjsInput e m r, Maybe SomeException)) -> Action
-makeAtomicAction atag a = Action $ mkTask $ proc (e, oo) -> do
-  -- mkTask uses 'switch' instead of 'dSwitch' internally, so we have to delay the finishing event by 1 tick
-  -- so the ObjsInput output is sent at t=0
-  tick <- NoEvent --> constant (Event ()) -< ()
-  case (e, tick) of
-    (NoEvent, NoEvent) -> do
-      (oi, e') <- arrM (lift . a) -< oo
-      returnA -< (oi{spellInterpreter = spellInterpreter oi <> mempty{ completeActions = Event (Map.singleton atag e') }}, NoEvent)
-    (Event e', NoEvent) -> do
-      returnA -< (mempty{spellInterpreter = mempty{ completeActions = Event (Map.singleton atag (Just e')) }}, NoEvent)
-    (_, Event ()) -> do
-      returnA -< (mempty, Event ())
+makeAtomicAction atag a = Action $
+  fmap snd . mkTask $ arrM \(e, oo) -> lift $ case e of
+    Event e' -> pure (mempty{ spellInterpreter = mempty{ completeActions = Event $ Map.singleton atag (Just e') }}, Event ())
+    NoEvent -> do
+      (oi, mex) <- a oo
+      pure (oi{spellInterpreter = spellInterpreter oi <> mempty{ completeActions = Event $ Map.singleton atag mex}}, Event ())
+  where
 
 -- | Run the given Task to completion, interrupting immediately without handling on an exception.
 --
 -- Monitors runningActions in SpellInterpreter, halts silently when invalid.
 -- Tells SpellInterpreter about the exit status of the task if terminated for
 -- another reason.
---
--- Calls runTask internally, meaning the final auxiliary output on the task will be ignored.
--- For an action to have any effects, the underlying task therefore requires to
--- run for at least 2 ticks.
 makeLongAction
--- side note on the topic of the final output being ignored: I really dislike how
--- Yampa tends to silently swallow outputs by default instead of the opposite
   :: (forall e m r. Monoid (ObjsInput e m r))
   => ActionTag
-  -> (forall e m r. Task (State Double) (ObjsOutput e m r) (ObjsInput e m r) (Maybe SomeException))
+  -> (forall e m r. Task (ObjsOutput e m r) (ObjsInput e m r) (State Double) (Maybe SomeException))
   -> Action
-makeLongAction atag t = Action $ mkTask $ proc (e, oo) -> do
+makeLongAction atag t = Action $ fmap snd . mkTask $ proc (e, oo) -> do
   let SpellInterpreterOutput{runningActions} = spellInterpreter oo
-      -- important: we should be able to verify by observation that the action
-      -- is running already at t=0
+      -- important: we should be able to verify by observation that _this_ action
+      -- (i.e. makeLongAction) is running already at t=0
       actionRunning = atag `Set.member` runningActions
   if not actionRunning 
     then do
@@ -291,38 +283,59 @@ makeLongAction atag t = Action $ mkTask $ proc (e, oo) -> do
         returnA -< (mempty{spellInterpreter = mempty{completeActions = Event (Map.singleton atag (Just e'))}}, Event ())
       NoEvent -> do
         eoi <- runTask t -< oo
-        let oi1 = fromLeft mempty eoi
-            eoi' = fmap (Event . Map.singleton atag) eoi
-            oi = oi1{spellInterpreter = (spellInterpreter oi1){completeActions = fromRight empty eoi'}}
-        completeEvent <- iPre NoEvent -< guard (isRight eoi)
-        returnA -< (oi, completeEvent)
+        let oi = fromLeft mempty eoi
+            internalEx = fromRight NoEvent $ fmap Event eoi
+            completion = fmap (Map.singleton atag) internalEx
+            oi' = oi{spellInterpreter = spellInterpreter oi <> mempty{completeActions = completion}}
+        returnA -< (oi', completion `tag` ())
 
 inputTargetCost :: Num a => a
 inputTargetCost = 25
 
 inputTargetAction :: (forall e m r. Monoid (ObjsInput e m r)) => ActionTag -> Action
 -- activate input target, then wait for a response.
-inputTargetAction atag = makeLongAction atag $ mkTask $ switch
-  -- pay mana cost once
-  (constM do
-    mana <- get
+inputTargetAction atag =
+  makeLongAction atag $ fmap (\case Right () -> Nothing; Left err -> Just err) $ runExceptT do
+    mana <- lift . lift $ get
     if mana >= inputTargetCost
       then do
-        modify' (subtract inputTargetCost)
-        pure ((mempty, NoEvent), Event ())
-      else pure ((mempty, Event (Just (SomeException OutOfSideEffects))), NoEvent)
-  )
-  \() -> proc Objects{targetSelector = TargetSelectorOutput{targetX, targetY, select}} -> do
-    -- while the task is running, target selector should be active
-    let oi1 = mempty{targetSelector = mempty{active = True}}
+        lift . lift $ modify' (subtract inputTargetCost)
+      else do
+        throwE $ SomeException OutOfSideEffects 
+    (oi, ()) <- lift $ mkTask $ proc (Objects{targetSelector = TargetSelectorOutput{targetX, targetY, select}}) -> do
+      -- while the task is running, target selector should be active
+      let oi1 = mempty{targetSelector = mempty{active = True}}
+      
+      -- the first select event, if it exists, is definitely not addressed to us
+      selectEvent <- initially NoEvent -< select
 
-    -- the first select event is definitely not addressed to us
-    selectEvent <- initially NoEvent -< select
+      -- if selectEvent, this is the output
+      let oi2 = mempty{spellInterpreter = mempty{completeInputTargets = Event (Map.singleton atag (Right (V2 targetX targetY)))}}
 
-    -- output on selectEvent
-    let oi2 = mempty{spellInterpreter = mempty{completeInputTargets = Event (Map.singleton atag (Right (V2 targetX targetY)))}}
+      returnA -< (if isEvent selectEvent then oi2 else oi1, selectEvent)
+    lift $ shriek oi
 
-    -- Delay selectEvent so that we can perform the necessary finishing effect
-    selectEvent' <- iPre NoEvent -< selectEvent
-
-    returnA -< (if isEvent selectEvent then oi2 else oi1, tag selectEvent' Nothing)
+-- mkTask $ switch
+--   -- pay mana cost once
+--   (constM do
+--     mana <- get
+--     if mana >= inputTargetCost
+--       then do
+--         modify' (subtract inputTargetCost)
+--         pure ((mempty, NoEvent), Event ())
+--       else pure ((mempty, Event (Just (SomeException OutOfSideEffects))), NoEvent)
+--   )
+--   \() -> proc Objects{targetSelector = TargetSelectorOutput{targetX, targetY, select}} -> do
+--     -- while the task is running, target selector should be active
+--     let oi1 = mempty{targetSelector = mempty{active = True}}
+-- 
+--     -- the first select event is definitely not addressed to us
+--     selectEvent <- initially NoEvent -< select
+-- 
+--     -- output on selectEvent
+--     let oi2 = mempty{spellInterpreter = mempty{completeInputTargets = Event (Map.singleton atag (Right (V2 targetX targetY)))}}
+-- 
+--     -- Delay selectEvent so that we can perform the necessary finishing effect
+--     selectEvent' <- iPre NoEvent -< selectEvent
+-- 
+--     returnA -< (if isEvent selectEvent then oi2 else oi1, tag selectEvent' Nothing)

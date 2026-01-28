@@ -6,8 +6,8 @@ import FRP.BearRiver
 import Simulation.Input
 import Control.Lens
 import Linear.V2
-import Control.Monad.Fix
 import Control.Applicative
+import Linear
 
 data instance ObjInput TargetSelector = TargetSelectorInput
   { targetSelectorInput :: !SimInput
@@ -39,14 +39,11 @@ targetSelectorObj = proc (TargetSelectorInput{targetSelectorInput, active}, _) -
       selectEvent = simEnter targetSelectorInput
 
   deactivateEvent <- edge -< not active
-  -- Delay selectEvent for consideration of resets
-  -- (so that the selection can be observed from targetX, targetY)
   resetEvent <- arr (uncurry (<|>)) <<< second (iPre NoEvent) -< (deactivateEvent, selectEvent)
 
-  -- on resetEvent, reset dx, dy to 0
-  -- (by switching into a new integral SF)
-  V2 dx dy <- fix (\k -> switch (first integral) (\() -> second (initially NoEvent) >>> k))
-    -< (if active then v else zeroVector, resetEvent)
+  -- Delayed switch so that there is time for the selection to be observed from the position
+  -- of targetX, targetY
+  V2 dx dy <- drSwitch integral -< (if active then v else 0, integral <$ resetEvent)
 
   returnA -< (TargetSelectorOutput
     -- magic number: start slightly offset from the player position

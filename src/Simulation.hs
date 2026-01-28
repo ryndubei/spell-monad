@@ -22,6 +22,7 @@ import Data.Foldable
 import Data.Function
 import qualified Data.IntMap.Strict as IntMap
 import Control.Applicative
+import Linear (dot, norm)
 
 -- | Tells the UI thread how an object should be drawn.
 data ObjectIdentifier = Player | Firebolt | TargetSelector deriving (Eq, Ord, Show, Generic)
@@ -89,7 +90,7 @@ simSF = arr (event mempty id) >>> proc SFInput{gameInput = u, termStdin = stdin,
   let PlayerOutput{..} = player objsOut
       SpellInterpreterOutput{..} = spellInterpreter objsOut
       targetSelectorOut = targetSelector objsOut
-      playerPos = (playerX, playerY)
+      playerPos = V2 playerX playerY
       simEvent1 = fmap (\r -> mempty { interpretResponse = r }) replResponse
       simEvent2 = fmap (\cs -> mempty { spellOutput = cs }) stdout
       FireboltOutputs fireboltStates = firebolts objsOut
@@ -102,17 +103,17 @@ simSF = arr (event mempty id) >>> proc SFInput{gameInput = u, termStdin = stdin,
     {
       -- square of diameter 2
       sdf = \(x,y) ->
-        let (playerDx,playerDy) = (x,y) ^-^ playerPos
+        let V2 playerDx playerDy = V2 x y - playerPos
             playerDistance = max (abs playerDx - 1) (abs playerDy - 1)
             fireboltDistances = map
               (\FireboltState{fireboltPos, fireboltRadius} ->
-                let fireboltDpos = V2 x y ^-^ fireboltPos
+                let fireboltDpos = V2 x y - fireboltPos
                  in dot fireboltDpos fireboltDpos - fireboltRadius
               ) (snd <$> IntMap.toList fireboltStates)
             targetSelectorDistance = if visible targetSelectorOut
               then 
                 -- relative to player position
-                Just . subtract 0.5 . norm $ V2 x y ^-^ (V2 (targetX targetSelectorOut) (targetY targetSelectorOut) ^+^ V2 playerX playerY)
+                Just . subtract 0.5 . norm $ V2 x y - (V2 (targetX targetSelectorOut) (targetY targetSelectorOut) + V2 playerX playerY)
               else Nothing
          in minimumBy (compare `on` snd) $ (Player, playerDistance) : maybe mempty (pure . (TargetSelector,)) targetSelectorDistance ++ map (Firebolt,) fireboltDistances
     , cameraX = playerXLagged

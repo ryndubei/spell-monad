@@ -6,7 +6,7 @@ import Input
 import FRP.Yampa
 import Control.Lens
 import Control.Applicative
-import Linear.Epsilon
+import Linear
 import Simulation.Coordinates
 
 data SimInput = SimInput
@@ -58,7 +58,7 @@ inputChangeRate = 2
 --
 -- >>> clampMagnitude (1.0 :: Double, 1.0 :: Double)
 -- (0.7071067811865475,0.7071067811865475)
-clampMagnitude :: (Num k, Ord k, VectorSpace v k) => v -> v
+clampMagnitude :: (Ord s, Metric f, Floating s) => f s -> f s
 clampMagnitude v = v ^/ max 1 (norm v)
 
 -- | Magnitude decays exponentially given no further input,
@@ -69,9 +69,9 @@ clampMagnitude v = v ^/ max 1 (norm v)
 -- >>> embed smoothInput (deltaEncode 1 [Event (1.0,2.0), NoEvent, NoEvent, NoEvent, Event (3.0, -5.0), NoEvent, NoEvent])
 -- [(0.0,0.0),(0.8944271909999159,1.7888543819998317),(1.7888543819998317,3.5777087639996634),(0.8944271909999159,1.7888543819998317),(0.22360679774997896,0.4472135954999579),(1.131821322293319,-1.3346804466384952),(2.0400358468366595,-3.116574488776948)]
 smoothInput :: SF (Event V) V
-smoothInput = decayFrom zeroVector
+smoothInput = decayFrom 0
   where
-    decayFrom v0 = switch
+    decayFrom v0 = dSwitch
       (proc e -> do
         v <- decay v0 (exp (log 2 / inputDecayHalfLife)) -< ()
         returnA -< (v, fmap (v,) e))
@@ -83,7 +83,7 @@ smoothInput = decayFrom zeroVector
           -- t = s / v
           timeToCollide = norm disp / inputChangeRate
           a = inputChangeRate *^ udisp
-       in switch
+       in dSwitch
         (proc e -> do
           c <- snapAfter (realToFrac timeToCollide) -< ()
           v <- arr (v0 ^+^) <<< integral -< a
@@ -101,7 +101,7 @@ smoothInput = decayFrom zeroVector
 --
 -- >>> embed (decay (1.0,2.0,3.0) 2.0) (deltaEncode 1 [(), ()])
 -- [(1.0,2.0,3.0),(0.5,1.0,1.5)]
-decay :: (Floating k, VectorSpace v k) => v -> k -> SF a v
+decay :: (Additive f, Floating k) => f k -> k -> SF a (f k)
 decay v0 k = proc _ -> do
   t <- time -< ()
   rec

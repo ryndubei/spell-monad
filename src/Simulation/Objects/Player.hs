@@ -52,8 +52,8 @@ playerObj = loopPre playerMaxMana $ proc ((playerIn1, objsOutput), lastPlayerMan
       else (playerIn1, mempty)
 
   pos' <- (fix $ \k (pos1, vy) ->
-    switch (generaliseSF $ fallingMovement pos1 vy) (\pos2 -> switch (generaliseSF $ groundedMovement pos2) k))
-    (zeroVector, 0) -< playerIn
+    switch (generaliseSF $ fallingMovement pos1 vy) (\_ pos2 -> switch (generaliseSF $ groundedMovement pos2) $ const k))
+    (0, 0) -< playerIn
 
   -- Default facing direction is the direction of movement.
   let (V2 vx _) = simInput playerIn ^. moveVector
@@ -83,7 +83,7 @@ playerObj = loopPre playerMaxMana $ proc ((playerIn1, objsOutput), lastPlayerMan
       >>> runStateS (runReaderS $ actionMgr mempty
       >>> arr (mconcat . fst . partitionEithers . fmap snd . IntMap.toList))
 
-    actionMgr sfs = pSwitchB sfs (first (first (iPre empty)) >>> second (iPre mempty) >>> arr (uncurry monitorActionMgr)) \sfs' (as, dones) ->
+    actionMgr sfs = dpSwitchB sfs (first (first (iPre empty)) >>> second (iPre mempty) >>> arr (uncurry monitorActionMgr)) \sfs' (as, dones) ->
       let as' = map ((arr snd >>>) . runTask . unAction) as
           k = if IntSet.null (IntMap.keysSet sfs') then 0 else IntSet.findMax (IntMap.keysSet sfs') + 1
           as'' = IntMap.fromList $ zip [k ..] as'
@@ -98,7 +98,7 @@ playerObj = loopPre playerMaxMana $ proc ((playerIn1, objsOutput), lastPlayerMan
 
     groundedMovement :: V -> SF Identity (ObjInput Player) (V, Event (V, Double))
     groundedMovement (V2 x0 _) = proc (PlayerInput{simInput = simInput@SimInput{simJump}}) -> do
-        let (V2 vx _) = playerBaseVelocity *^ (simInput ^. moveVector)
+        let (V2 vx _) = playerBaseVelocity * (simInput ^. moveVector)
         dx <- integral -< vx
         let pos' = V2 (x0 + dx) 0
         -- Horizontal velocity is fully determined by the user input, so we only
@@ -106,10 +106,10 @@ playerObj = loopPre playerMaxMana $ proc ((playerIn1, objsOutput), lastPlayerMan
         returnA -< (pos', (pos', playerJumpVelocity) <$ simJump)
 
     -- Accelerates downwards until both velocity and position would be negative,
-    -- then switches back to grounded movement.
+    -- then returns an event to switch back to grounded movement.
     fallingMovement :: V -> Double -> SF Identity (ObjInput Player) (V, Event V)
     fallingMovement (V2 x0 y0) vy0 = proc (PlayerInput{simInput}) -> do
-      let (V2 vx _) = playerBaseVelocity *^ (simInput ^. moveVector)
+      let (V2 vx _) = playerBaseVelocity * (simInput ^. moveVector)
       dx <- integral -< vx
       dvy <- integral -< gravityAcceleration
       let vy = vy0 - dvy
