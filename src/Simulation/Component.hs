@@ -22,6 +22,8 @@ module Simulation.Component
   -- * Accessing components
   , WrappedInputs(..)
   , shrinkComponent
+  , shrinkComponent'
+  , callComponent
   ) where
 
 import FRP.BearRiver
@@ -47,7 +49,7 @@ data SomeComp comp = forall x y. (Eq (comp x y), Typeable (comp x y)) => SomeCom
 type ComponentOutputs comp = forall x y. (Eq (comp x y), Typeable (comp x y)) => comp x y -> y
 
 -- | The inputs for all the other components.
-type ComponentInputs comp = forall x y. Monoid x => comp x y -> x
+type ComponentInputs comp = forall x y. (Eq (comp x y), Typeable (comp x y), Monoid x) => comp x y -> x
 
 -- | Give a name to a component, registering it for interaction by other components by address.
 --
@@ -67,6 +69,11 @@ overrideOutput :: Typeable (comp a b) => ComponentOutputs comp -> comp a b -> b 
 overrideOutput selOut (comp :: t1) b (c :: t2) = case eqT @t1 @t2 of
   Nothing -> selOut c
   Just Refl -> if comp == c then b else selOut c
+
+inputFor :: Typeable (comp a b) => comp a b -> a -> ComponentInputs comp
+inputFor (comp :: t1) a (c :: t2) = case eqT @t1 @t2 of 
+  Nothing -> mempty
+  Just Refl -> if comp == c then a else mempty
 
 -- | 'overlayOutputs scs o1 o2' overlays 'o1' over 'o2' at each element of 'scs'.
 overlayOutputs :: [SomeComp comp] -> ComponentOutputs comp -> ComponentOutputs comp -> ComponentOutputs comp
@@ -187,3 +194,10 @@ shrinkComponent' Component{..} = Component
 -- (it does not handle impredicative types well)
 shrinkComponent :: Monad m => Component comp m (a, ComponentOutputs comp) (b, WrappedInputs comp) -> Component comp m a b
 shrinkComponent = shrinkComponent' . fmap (\(b, WrappedInputs selIn) -> (b, selIn))
+
+-- | Address a neighbouring component inline, like an internal arrow.
+--
+-- Important to remember: the component is not actually internal, and so its
+-- output will appear out of sync with the input.
+callComponent :: (Monad m, Eq (comp x y), Typeable (comp x y)) => comp x y -> Component comp m x y
+callComponent comp = shrinkComponent' $ arr \(x, outputs) -> (outputs comp, inputFor comp x)
