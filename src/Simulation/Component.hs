@@ -30,7 +30,7 @@ import qualified Data.Sequence as Seq
 import Data.Sequence (Seq)
 import Control.Monad.Trans.Class
 import Data.Foldable
-import Control.Category
+import qualified Control.Category
 
 -- | A Component is a signal function with 'neighbours' indexed by 'comp'.
 -- The neighbours run in parallel, and can be taken as both inputs
@@ -90,8 +90,10 @@ joinComponents comp1 comp2 = Component
               )
   }
 
+instance Monad m => Functor (Component comp m b) where
+  fmap f comp = comp >>> arr f
 
-instance Monad m => Category (Component comp m) where
+instance Monad m => Control.Category.Category (Component comp m) where
   id = toComponent $ Control.Category.id
   (.) c1 c2 = Component
     { definedOn = definedOn c1 <> definedOn c2
@@ -116,8 +118,14 @@ instance Monad m => Arrow (Component comp m) where
 
 -- | Implementation detail. Ignore.
 newtype WrappedOutputs comp = WrappedOutputs { unwrapOutputs :: ComponentOutputs comp }
--- | Exists solely to 
+
 newtype WrappedInputs comp = WrappedInputs { unwrapInputs :: ComponentInputs comp }
+
+instance Semigroup (WrappedInputs comp) where
+  (<>) (WrappedInputs in1) (WrappedInputs in2) = WrappedInputs \s -> in1 s <> in2 s
+
+instance Monoid (WrappedInputs comp) where
+  mempty = WrappedInputs (const mempty)
 
 wrapSF
   :: Monad m
@@ -164,8 +172,8 @@ toComponent sf = Component
   }
 
 -- | Let a component interact with tagged components.
-shrinkComponent :: Monad m => Component comp m (a, ComponentOutputs comp) (b, ComponentInputs comp) -> Component comp m a b
-shrinkComponent Component{..} = Component
+shrinkComponent' :: Monad m => Component comp m (a, ComponentOutputs comp) (b, ComponentInputs comp) -> Component comp m a b
+shrinkComponent' Component{..} = Component
   { componentSF =
       arr (\(a, selIn, selOut) -> ((a,selOut), selIn, selOut))
       >>> componentSF
@@ -173,3 +181,9 @@ shrinkComponent Component{..} = Component
   , definedOn
   }
 
+-- | Let a component interact with tagged components.
+--
+-- WrappedInputs exists to improve type inference with arrow notation
+-- (it does not handle impredicative types well)
+shrinkComponent :: Monad m => Component comp m (a, ComponentOutputs comp) (b, WrappedInputs comp) -> Component comp m a b
+shrinkComponent = shrinkComponent' . fmap (\(b, WrappedInputs selIn) -> (b, selIn))
