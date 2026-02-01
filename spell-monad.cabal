@@ -62,6 +62,7 @@ library
                     , Simulation
                     , Simulation.Coordinates
                     , Simulation.Input
+                    , Simulation.Component
                     , Simulation.Objects
                     , Simulation.Objects.All
                     , Simulation.Objects.Player
