@@ -27,6 +27,7 @@ import qualified Data.Sequence as Seq
 import Data.Sequence (Seq)
 import Data.Foldable
 import qualified Control.Category
+import qualified Data.Bifunctor as Bifunctor
 
 -- | A Component is a signal function with 'neighbours' indexed by 'comp'.
 -- The neighbours run in parallel, and can be taken as both inputs
@@ -117,7 +118,6 @@ instance Monad m => Arrow (Component comp m) where
   
 -- These are needed to help type inference in some cases (especially with arrow notation)
 
--- | Implementation detail. Ignore.
 newtype WrappedOutputs comp = WrappedOutputs { unwrapOutputs :: ComponentOutputs comp }
 
 newtype WrappedInputs comp = WrappedInputs { unwrapInputs :: ComponentInputs comp }
@@ -184,10 +184,10 @@ shrinkComponent' Component{..} = Component
 
 -- | Let a component interact with tagged components.
 --
--- WrappedInputs exists to improve type inference with arrow notation
+-- WrappedInputs/Outputs exists to improve type inference with arrow notation
 -- (it does not handle impredicative types well)
-shrinkComponent :: Monad m => Component comp m (a, ComponentOutputs comp) (b, WrappedInputs comp) -> Component comp m a b
-shrinkComponent = shrinkComponent' . fmap (\(b, WrappedInputs selIn) -> (b, selIn))
+shrinkComponent :: Monad m => Component comp m (a, WrappedOutputs comp) (b, WrappedInputs comp) -> Component comp m a b
+shrinkComponent = shrinkComponent' . fmap (\(b, WrappedInputs selIn) -> (b, selIn)) . (arr (Bifunctor.second WrappedOutputs) >>>)
 
 -- | Address a neighbouring component inline, like an internal arrow.
 --
