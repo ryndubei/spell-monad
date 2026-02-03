@@ -63,14 +63,16 @@ library
                     , Simulation.Coordinates
                     , Simulation.Input
                     , Simulation.Component
+                    , Simulation.Util
                     , Simulation.Objects
                     , Simulation.Objects.All
                     , Simulation.Objects.Player
                     , Simulation.Objects.Player.Types
                     , Simulation.Objects.Firebolts
-                    , Simulation.Objects.SpellInterpreter
+                    -- , Simulation.Objects.SpellInterpreter
                     , Simulation.Objects.SpellInterpreter.Types
                     , Simulation.Objects.TargetSelector
+                    , Simulation.Objects.Geometry
                     , Spell.Eval
                     , Untrusted
     default-extensions:
@@ -86,17 +88,21 @@ library
                     , containers
                     , data-clist
                     , data-default
+                    , dependent-map
                     , deepseq
                     , dunai
                     , effectful
                     , free
+                    , hashable
                     , hint
                     , lens
                     , linear
                     , mtl
+                    , nspace
                     , parallel
                     , profunctors
                     , transformers
+                    , unordered-containers
                     , some
                     , stm
                     , text
@@ -104,6 +110,7 @@ library
                     , vector
                     , vty
                     , vty-crossplatform
+                    , QuickCheck
 
     hs-source-dirs:   src
     default-language: GHC2021

@@ -1,5 +1,6 @@
 {-# OPTIONS_GHC -Wno-orphans #-}
-module Simulation.Objects.SpellInterpreter.Types (ObjOutput(..), ObjInput(..), Blocked(..), Action(..), unAction, ActionTag(..)) where
+{-# LANGUAGE ImpredicativeTypes #-}
+module Simulation.Objects.SpellInterpreter.Types (SpellInterpreterOutput(..), SpellInterpreterInput(..), Blocked(..), Action(..), unAction, ActionTag(..)) where
 
 import Simulation.Objects
 import Spell (SpellT(..))
@@ -16,6 +17,7 @@ import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.Set (Set)
 import Simulation.Coordinates
+import Simulation.Component
 
 -- | If we have two ActionTags, the greater one is valid.
 --
@@ -34,25 +36,31 @@ data Blocked
 -- Should always be run to completion when received (it will monitor whether it is
 -- still valid or not by itself).
 newtype Action = Action
-  (forall e m r. Task
-    (Event SomeException, ObjsOutput e m r)
-    (ObjsInput e m r)
+  (Task
+    (Event SomeException, ComponentOutputs Obj)
+    (ComponentInputs Obj)
     (State Double)
     ())
 
-unAction :: Action -> Task (Event SomeException, ObjsOutput e m r) (ObjsInput e m r) (State Double) ()
+unAction :: Action -> Task (Event SomeException, ComponentOutputs Obj) (ComponentInputs Obj) (State Double) ()
 unAction (Action t) = t
 
-data instance ObjInput (SpellInterpreter e m r) = SpellInterpreterInput
-  { replInput :: Event (Maybe (SpellT e (MaybeT m `Product` ReaderT SomeException m) r, e -> r, SomeException -> e))
+type family InterpreterError
+
+data SpellInterpreterInput = SpellInterpreterInput
+  { replInput :: Event (Maybe (SpellT InterpreterError (MaybeT ObjectM `Product` ReaderT SomeException ObjectM) InterpreterReturn, InterpreterError -> InterpreterReturn, SomeException -> InterpreterError))
   , stdin :: Event (Seq Char) -- ^ Unblocks BlockedOnStdin if non-empty
   , exception :: Event SomeException -- ^ Async exception. Unblocks anything.
   , completeActions :: Event (Map ActionTag (Maybe SomeException)) -- ^ Unblocks BlockedOnAction, possibly with a synchronous exception.
   , completeInputTargets :: Event (Map ActionTag (Either SomeException V)) -- ^ Unblocks BlockedOnInputTarget.
   }
 
-data instance ObjOutput (SpellInterpreter e m r) = SpellInterpreterOutput
-  { replResponse :: !(Event r)
+type instance ObjIn SpellInterpreter = SpellInterpreterInput
+
+type family InterpreterReturn
+
+data SpellInterpreterOutput = SpellInterpreterOutput
+  { replResponse :: !(Event InterpreterReturn)
   , stdout :: !(Event (Seq Char))
   , blocked :: !(Maybe Blocked)
   , runningActions :: !(Set ActionTag)
@@ -60,10 +68,12 @@ data instance ObjOutput (SpellInterpreter e m r) = SpellInterpreterOutput
     -- this way for ease of reasoning.
   }
 
-instance Default (ObjOutput (SpellInterpreter e m r)) where
+type instance ObjOut SpellInterpreter = SpellInterpreterOutput
+
+instance Default SpellInterpreterOutput where
   def = SpellInterpreterOutput empty empty empty mempty
 
-instance Semigroup (ObjInput (SpellInterpreter e m r)) where
+instance Semigroup SpellInterpreterInput where
   (<>) si1 si2 = SpellInterpreterInput
     { replInput = replInput si2 <|> replInput si1
     , stdin = mergeBy (<>) (stdin si1) (stdin si2)
@@ -72,5 +82,5 @@ instance Semigroup (ObjInput (SpellInterpreter e m r)) where
     , completeInputTargets = mergeBy Map.union (completeInputTargets si1) (completeInputTargets si2)
     }
 
-instance Monoid (ObjInput (SpellInterpreter e m r)) where
+instance Monoid SpellInterpreterInput where
   mempty = SpellInterpreterInput empty empty empty empty empty

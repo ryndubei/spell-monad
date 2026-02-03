@@ -15,7 +15,6 @@ import App.Thread.Repl
 import Control.Concurrent.STM
 import Untrusted
 import Spell.Eval
-import App.Thread.SF
 import Simulation.Objects.All
 import Simulation.Coordinates
 import Data.Foldable
@@ -23,9 +22,10 @@ import Data.Function
 import qualified Data.IntMap.Strict as IntMap
 import Control.Applicative
 import Linear (dot, norm)
+import Simulation.Util
 
 -- | Tells the UI thread how an object should be drawn.
-data ObjectIdentifier = Player | Firebolt | TargetSelector deriving (Eq, Ord, Show, Generic)
+data ObjectIdentifier = Player | Firebolt | TargetSelector | LevelGeometry deriving (Eq, Ord, Show, Generic)
 
 instance NFData ObjectIdentifier
 

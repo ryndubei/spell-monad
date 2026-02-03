@@ -1,6 +1,6 @@
 {-# OPTIONS_GHC -Wno-orphans #-}
 {-# LANGUAGE BlockArguments #-}
-module Simulation.Objects.Firebolts (FireboltState(..), ObjInput(..), ObjOutput(..), fireboltsObj) where
+module Simulation.Objects.Firebolts (FireboltState(..), fireboltsObj, FireboltsInput(..), FireboltOutputs(..)) where
 
 import Simulation.Objects
 import FRP.BearRiver
@@ -10,22 +10,25 @@ import Data.IntMap.Strict (IntMap)
 import Data.IntSet (IntSet)
 import qualified Data.IntMap.Strict as IntMap
 import qualified Data.IntSet as IntSet
-import App.Thread.SF
+import Simulation.Util
+import Simulation.Component
 
-data instance ObjInput FireboltsObject = FireboltsInput { spawnFirebolts :: Event [FireboltState], killFirebolts :: Event IntSet }
+type instance ObjIn Firebolts = FireboltsInput
+data FireboltsInput = FireboltsInput { spawnFirebolts :: Event [FireboltState], killFirebolts :: Event IntSet }
+type instance ObjOut Firebolts = FireboltOutputs
+newtype FireboltOutputs = FireboltOutputs (IntMap FireboltState)
 data FireboltState = FireboltState { fireboltPos :: !V, fireboltVel :: !V, fireboltRadius :: !Double, lifetime :: !Double } deriving (Eq, Ord, Show)
-newtype instance ObjOutput FireboltsObject = FireboltOutputs (IntMap FireboltState)
 
-instance Semigroup (ObjInput FireboltsObject) where
+instance Semigroup FireboltsInput where
   (<>) f1 f2 = FireboltsInput
     { spawnFirebolts = mergeBy (<>) (spawnFirebolts f1) (spawnFirebolts f2)
     , killFirebolts = mergeBy (<>) (killFirebolts f1) (killFirebolts f2)
     }
-instance Monoid (ObjInput FireboltsObject) where
+instance Monoid FireboltsInput where
   mempty = FireboltsInput NoEvent NoEvent
 
-fireboltsObj :: forall e m r. (Monad m, Monoid (ObjsInput e m r)) => Object e m r FireboltsObject
-fireboltsObj = generaliseSF $ proc (FireboltsInput{spawnFirebolts, killFirebolts}, _) -> do
+fireboltsObj :: forall m. Monad m => Component Obj m FireboltsInput FireboltOutputs
+fireboltsObj = toComponent . generaliseSF $ proc (FireboltsInput{spawnFirebolts, killFirebolts}) -> do
   let spawnSFs = map (generaliseSF . fireboltObj) (event mempty id spawnFirebolts)
       spawns im =
         let is = IntMap.keysSet im
@@ -42,7 +45,7 @@ fireboltsObj = generaliseSF $ proc (FireboltsInput{spawnFirebolts, killFirebolts
         deaths = gate (Event (`IntMap.withoutKeys` dieFirebolts)) (not $ IntSet.null dieFirebolts)
         endo = mergeBy (.) spawns' (mergeBy (.) deaths kills) -- first kill, then spawn
     out <- rpSwitchB IntMap.empty -< ((), endo)
-  returnA -< (FireboltOutputs out, mempty)
+  returnA -< FireboltOutputs out
 
 fireboltObj :: FireboltState -> SF Identity () FireboltState
 fireboltObj s0 = proc () -> do

@@ -1,5 +1,5 @@
 {-# OPTIONS_GHC -Wno-orphans #-}
-module Simulation.Objects.TargetSelector (targetSelectorObj, ObjOutput(..), ObjInput(..)) where
+module Simulation.Objects.TargetSelector (targetSelectorObj, TargetSelectorInput(..), TargetSelectorOutput(..)) where
 
 import Simulation.Objects
 import FRP.BearRiver
@@ -8,12 +8,15 @@ import Control.Lens
 import Linear.V2
 import Control.Applicative
 import Linear
+import Simulation.Component
 
-data instance ObjInput TargetSelector = TargetSelectorInput
+type instance ObjIn TargetSelector = TargetSelectorInput
+data TargetSelectorInput = TargetSelectorInput
   { targetSelectorInput :: !SimInput
   , active :: !Bool
   }
-data instance ObjOutput TargetSelector = TargetSelectorOutput
+type instance ObjOut TargetSelector = TargetSelectorOutput
+data TargetSelectorOutput = TargetSelectorOutput
   -- ^ Should be interpreted as relative to player position
   { targetX :: !Double
   , targetY :: !Double
@@ -21,20 +24,20 @@ data instance ObjOutput TargetSelector = TargetSelectorOutput
   , select :: !(Event ())
   }
 
-instance Semigroup (ObjInput TargetSelector) where
+instance Semigroup TargetSelectorInput where
   (<>) a b = TargetSelectorInput
     { targetSelectorInput = targetSelectorInput a <> targetSelectorInput b
     , active = active a || active b
     }
 
-instance Monoid (ObjInput TargetSelector) where
+instance Monoid TargetSelectorInput where
   mempty = TargetSelectorInput mempty False
 
 targetSelectorSpeed :: Fractional a => a
 targetSelectorSpeed = 10
 
-targetSelectorObj :: (Monad m, Monoid (ObjsInput e m r)) => Object e m r TargetSelector
-targetSelectorObj = proc (TargetSelectorInput{targetSelectorInput, active}, _) -> do
+targetSelectorObj :: Monad m => Component Obj m TargetSelectorInput TargetSelectorOutput
+targetSelectorObj = toComponent $ proc (TargetSelectorInput{targetSelectorInput, active}) -> do
   let v = targetSelectorSpeed *^ (targetSelectorInput ^. moveVector)
       selectEvent = simEnter targetSelectorInput
 
@@ -51,5 +54,4 @@ targetSelectorObj = proc (TargetSelectorInput{targetSelectorInput, active}, _) -
     , targetY = dy + 5
     , visible = active
     , select = selectEvent
-    }
-    , mempty)
+    })

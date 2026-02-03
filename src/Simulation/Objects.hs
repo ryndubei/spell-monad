@@ -1,49 +1,55 @@
-{-# LANGUAGE Arrows #-}
-{-# LANGUAGE RecordWildCards #-}
-{-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE TypeData #-}
+{-# LANGUAGE AllowAmbiguousTypes #-}
+{-# LANGUAGE ImpredicativeTypes #-}
+{-# LANGUAGE BlockArguments #-}
+{-# LANGUAGE LambdaCase #-}
 module Simulation.Objects where
 
-import FRP.BearRiver
 import Data.Kind
-import Data.Functor.Identity
-import Data.Coerce
+import Simulation.Component
+import FRP.BearRiver
+import Data.Typeable
+import Control.Monad.Trans.Class
 
-type Object e m r o = SF m (ObjInput o, ObjsOutput e m r) (ObjOutput o, ObjsInput e m r)
-type Object' o = forall e m r. Monad m => Object e m r o
+type family ObjIn (o :: ObjType)
+type family ObjOut (o :: ObjType)
 
-data family ObjInput o
+type data ObjType
+  = Player
+  | Firebolts
+  | SpellInterpreter
+  | TargetSelector
+  | StaticGeometry
 
-data family ObjOutput o
+data Obj x y where
+  Player :: Obj (ObjIn Player) (ObjOut Player)
+  Firebolts :: Obj (ObjIn Firebolts) (ObjOut Firebolts)
+  SpellInterpreter :: Obj (ObjIn SpellInterpreter) (ObjOut SpellInterpreter)
+  TargetSelector :: Obj (ObjIn TargetSelector) (ObjOut TargetSelector)
+  StaticGeometry :: Obj (ObjIn StaticGeometry) (ObjOut StaticGeometry)
 
-type Objects = Objects1 Identity
+deriving instance Eq (Obj x y)
 
-type ObjsInput = Objects1 ObjInput
+type family ValidObjects (os :: [ObjType]) :: Constraint where
+  ValidObjects '[] = ()
+  ValidObjects (o:os) = (Monoid (ObjIn o), Typeable o, Typeable (ObjIn o), Typeable (ObjOut o), ValidObjects os)
 
-type ObjsOutput = Objects1 ObjOutput
+-- Type aliases to be defined later
+type family ObjectM :: Type -> Type
 
-data Objects1 f (e :: Type) m r = Objects
-  { player :: !(f Player)
-  , firebolts :: !(f FireboltsObject)
-  , spellInterpreter :: !(f (SpellInterpreter e m r))
-  , targetSelector :: !(f TargetSelector)
-  }
-
-newtype Player = PlayerObject (Object' Player)
-newtype FireboltsObject = FireboltsObject (Object' FireboltsObject)
-newtype SpellInterpreter (e :: Type) (m :: Type -> Type) (r :: Type) = SpellInterpreterObject (Object e m r (SpellInterpreter e m r))
-newtype TargetSelector = TargetSelectorObject (Object' TargetSelector)
-
-objectsSF :: forall e m r. (Monad m, Monoid (ObjsInput e m r)) => ObjsOutput e m r -> Objects e m r -> SF m (ObjsInput e m r) (ObjsOutput e m r)
-objectsSF objsOutput0 objs = loopPre (objsOutput0, mempty) $ proc (objsInputExternal, (objsOutput, objsInputInternal)) -> do
-  let objsInput = objsInputInternal <> objsInputExternal
-  (player, in1) <- pobj -< (player objsInput, objsOutput)
-  (firebolts, in2) <- fobj -< (firebolts objsInput, objsOutput)
-  (spellInterpreter, in3) <- sobj -< (spellInterpreter objsInput, objsOutput)
-  (targetSelector, in4) <- tobj -< (targetSelector objsInput, objsOutput)
-  let objsInputInternal' = in1 <> in2 <> in3 <> in4
-  returnA -< second (,objsInputInternal') $ dup Objects{..}
-  where
-    PlayerObject pobj = coerce (player objs)
-    FireboltsObject fobj = coerce (firebolts objs)
-    sobj = coerce (spellInterpreter objs)
-    TargetSelectorObject tobj = coerce (targetSelector objs)
+objectsSF
+  :: (Monad ObjectM, ValidObjects [ Player, Firebolts, SpellInterpreter, TargetSelector ])
+  => ComponentOutputs Obj
+  -> (forall x y. Obj x y -> Component Obj ObjectM x y)
+  -> SF ObjectM (ComponentInputs Obj) (ComponentOutputs Obj)
+objectsSF objOutputs0 objs = (>>> arr unwrapOutputs) . runComponent objOutputs0 $ proc inputs -> do
+  playerOut <- objs Player -< inputs Player
+  fireboltsOut <- objs Firebolts -< inputs Firebolts
+  -- spellInterpreterOut <- objs SpellInterpreter -< inputs SpellInterpreter
+  targetSelOut <- objs TargetSelector -< inputs TargetSelector
+  returnA -< WrappedOutputs \case
+    Player -> playerOut
+    Firebolts -> fireboltsOut
+    SpellInterpreter -> objOutputs0 SpellInterpreter
+    TargetSelector -> targetSelOut
+    StaticGeometry -> objOutputs0 StaticGeometry

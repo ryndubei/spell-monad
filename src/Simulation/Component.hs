@@ -15,6 +15,7 @@ module Simulation.Component
   , joinComponents
   -- * Accessing components
   , WrappedInputs(..)
+  , WrappedOutputs(..)
   , shrinkComponent
   , shrinkComponent'
   , callComponent
@@ -24,7 +25,6 @@ import FRP.BearRiver
 import Data.Typeable
 import qualified Data.Sequence as Seq
 import Data.Sequence (Seq)
-import Control.Monad.Trans.Class
 import Data.Foldable
 import qualified Control.Category
 
@@ -151,10 +151,10 @@ unwrapSF sf =
 -- The first argument is the initial value of each output.
 -- If any components have not been implemented,
 -- they will output this value as a constant.
-runComponent :: Monad m => m (ComponentOutputs comp) -> Component comp m a b -> SF m a b
-runComponent defaultOutputs Component{..} = runTask_ do
-  outputs0 <- lift $ fmap WrappedOutputs defaultOutputs
-  mkTask_ $ loopPre (WrappedInputs (const mempty), outputs0) $
+runComponent :: Monad m => ComponentOutputs comp -> Component comp m a b -> SF m a b
+runComponent defaultOutputs Component{..} =
+  let outputs0 = WrappedOutputs defaultOutputs
+   in loopPre (WrappedInputs (const mempty), outputs0) $
     arr (\(a, (WrappedInputs selIn, WrappedOutputs selOut)) -> (a, selIn, selOut))
     >>> componentSF
     >>> arr (\(b, selOut, selIn) ->

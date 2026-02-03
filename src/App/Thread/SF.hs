@@ -9,10 +9,6 @@ module App.Thread.SF
   , waitSFThread
   , flushSFThreadEvents
   , mapDiscreteOutput
-  
-  -- * Helpers for signal functions
-  , morphSF
-  , generaliseSF
   ) where
 
 import FRP.BearRiver
@@ -24,16 +20,6 @@ import Data.Profunctor
 import Control.Concurrent
 import Data.Maybe
 import Control.Monad.IO.Class
-import Control.Monad.Trans.MSF
-import Data.Functor.Identity
-
-generaliseSF :: Monad m => SF Identity a b -> SF m a b
-generaliseSF = morphSF (pure . runIdentity)
-
--- | Move between monads in an SF, while keeping time information.
-morphSF :: (Monad m2, Monad m1) => (forall c. m1 c -> m2 c) -> SF m1 a b -> SF m2 a b
--- I think this would be as safe as morphS, but who knows
-morphSF nat = morphS (mapReaderT nat) 
 
 maxDelay :: Num a => a
 maxDelay = 10 * 10^(3 :: Int) -- 10ms in microseconds

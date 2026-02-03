@@ -342,7 +342,10 @@ drawSimState SimState{..} =
         xs = V.map ((+ cameraX) . (/ 2) . fromIntegral) $ V.enumFromN (- (width `div` 2)) width
 
         dists :: V.Vector (V.Vector (ObjectIdentifier, Double))
-        dists = flip V.map ys \y -> flip V.map xs \x -> sdf (x,y)
+        dists = flip V.map ys \y -> flip V.map xs \x ->
+          if pollGeometry (V2 x y) adHocGeometry
+            then (LevelGeometry, 0)
+            else sdf (x,y)
 
         -- ObjectIdentifiers together with the string lengths to draw
         lineSliceLengths :: [V.Vector (Maybe ObjectIdentifier, Int)]

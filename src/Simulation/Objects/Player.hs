@@ -12,11 +12,9 @@ import Simulation.Input
 import Control.Lens
 import Control.Monad.Fix
 import Simulation.Coordinates
-import App.Thread.SF
 import Control.Monad
 import Linear.Epsilon
 import Simulation.Objects.Player.Types
-import Simulation.Objects.SpellInterpreter
 import Control.Monad.Trans.MSF.State
 import Control.Monad.Trans.MSF.Reader
 import Data.Either
@@ -25,6 +23,8 @@ import qualified Data.IntSet as IntSet
 import Control.Applicative
 import Simulation.Objects.TargetSelector
 import Data.Bool
+import Simulation.Util
+import Simulation.Component
 
 gravityAcceleration :: Fractional a => a
 gravityAcceleration = 9.8
@@ -42,8 +42,8 @@ playerManaRegenRate = 5
 holdJust :: forall m a. Monad m => a -> SF m (Maybe a) a
 holdJust a0 = arr maybeToEvent >>> hold a0
 
-playerObj :: forall e m r. (Monad m, Monoid (ObjsInput e m r)) => Object e m r Player
-playerObj = loopPre playerMaxMana $ proc ((playerIn1, objsOutput), lastPlayerMana) -> do
+playerObj :: forall e m r. Monad m => Component Obj m PlayerInput PlayerOutput
+playerObj = toComponent $ loopPre playerMaxMana $ proc ((playerIn1, objsOutput), lastPlayerMana) -> do
 
 
   -- while TargetSelector is visible, route all user input to it
@@ -64,7 +64,9 @@ playerObj = loopPre playerMaxMana $ proc ((playerIn1, objsOutput), lastPlayerMan
   manaRegenEvent <- repeatedly 1 () -< ()
   let newMana1 = event lastPlayerMana id $ min playerMaxMana (lastPlayerMana + playerManaRegenRate) <$ manaRegenEvent
 
-  (playerMana, objsInput) <- generaliseSF actionMgr' -< (newMana1, (actions playerIn, (NoEvent, objsOutput)))
+  let actions' = zip [0..] <$> actions playerIn
+
+  (playerMana, objsInput) <- dynCollection -< (newMana1, _, _)
 
   let playerOutput = PlayerOutput
         { playerX = pos' ^. _x
@@ -78,25 +80,7 @@ playerObj = loopPre playerMaxMana $ proc ((playerIn1, objsOutput), lastPlayerMan
   where
     playerMaxMana = 100
 
-    actionMgr' = readerS $
-      arr (\(mana, (dt, a)) -> (dt, (mana, a)))
-      >>> runStateS (runReaderS $ actionMgr mempty
-      >>> arr (mconcat . fst . partitionEithers . fmap snd . IntMap.toList))
-
-    actionMgr sfs = dpSwitchB sfs (first (first (iPre empty)) >>> second (iPre mempty) >>> arr (uncurry monitorActionMgr)) \sfs' (as, dones) ->
-      let as' = map ((arr snd >>>) . runTask . unAction) as
-          k = if IntSet.null (IntMap.keysSet sfs') then 0 else IntSet.findMax (IntMap.keysSet sfs') + 1
-          as'' = IntMap.fromList $ zip [k ..] as'
-          sfs'' = IntMap.withoutKeys sfs' dones
-          sfs''' = as'' <> sfs''
-       in actionMgr sfs'''
-
-    monitorActionMgr (as, _) im =
-      let dones = IntMap.keysSet (IntMap.filter isRight im)
-          donese = if IntSet.null dones then NoEvent else Event dones
-       in mergeBy (<>) ((, mempty) <$> as) ((mempty,) <$> donese)
-
-    groundedMovement :: V -> SF Identity (ObjInput Player) (V, Event (V, Double))
+    groundedMovement :: V -> SF Identity PlayerInput (V, Event (V, Double))
     groundedMovement (V2 x0 _) = proc (PlayerInput{simInput = simInput@SimInput{simJump}}) -> do
         let (V2 vx _) = playerBaseVelocity * (simInput ^. moveVector)
         dx <- integral -< vx
@@ -107,7 +91,7 @@ playerObj = loopPre playerMaxMana $ proc ((playerIn1, objsOutput), lastPlayerMan
 
     -- Accelerates downwards until both velocity and position would be negative,
     -- then returns an event to switch back to grounded movement.
-    fallingMovement :: V -> Double -> SF Identity (ObjInput Player) (V, Event V)
+    fallingMovement :: V -> Double -> SF Identity PlayerInput (V, Event V)
     fallingMovement (V2 x0 y0) vy0 = proc (PlayerInput{simInput}) -> do
       let (V2 vx _) = playerBaseVelocity * (simInput ^. moveVector)
       dx <- integral -< vx

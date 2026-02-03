@@ -252,13 +252,13 @@ makeAtomicAction
   :: (forall e m r. Monoid (ObjsInput e m r))
   => ActionTag
   -> (forall e m r. ObjsOutput e m r -> State Double (ObjsInput e m r, Maybe SomeException)) -> Action
-makeAtomicAction atag a = Action $
-  fmap snd . mkTask $ arrM \(e, oo) -> lift $ case e of
+makeAtomicAction atag a = Action do
+  (b, ()) <- mkTask $ arrM \(e, oo) -> lift $ case e of
     Event e' -> pure (mempty{ spellInterpreter = mempty{ completeActions = Event $ Map.singleton atag (Just e') }}, Event ())
     NoEvent -> do
       (oi, mex) <- a oo
       pure (oi{spellInterpreter = spellInterpreter oi <> mempty{ completeActions = Event $ Map.singleton atag mex}}, Event ())
-  where
+  shriek b
 
 -- | Run the given Task to completion, interrupting immediately without handling on an exception.
 --
