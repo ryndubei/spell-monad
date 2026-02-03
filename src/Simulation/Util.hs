@@ -10,7 +10,15 @@
 -- partitionEithersIM
 {-# OPTIONS_GHC -Wno-incomplete-uni-patterns #-}
 
-module Simulation.Util (dynCollection, generaliseSF, morphSF, ActionTag, Epoch) where
+module Simulation.Util
+  ( dynCollection
+  , generaliseSF
+  , morphSF
+  , ActionTag
+  , Epoch
+  , msfToCoroutine
+  , coroutineToMsf
+  ) where
 
 import FRP.BearRiver
 import Control.Monad.State.Strict (StateT)
@@ -26,6 +34,24 @@ import Data.Unique
 import Data.Sequence (Seq)
 import Data.Int (Int64)
 import GHC.Generics
+import Control.Monad.Coroutine
+import Control.Monad.Coroutine.SuspensionFunctors
+import Data.Void
+import Data.MonadicStreamFunction.InternalCore (MSF(..))
+import Data.Functor ((<&>))
+import Data.Function ((&))
+
+-- | Isomorphism.
+msfToCoroutine  :: Monad m => MSF m a b -> a -> Coroutine (Request b a) m void
+msfToCoroutine msf a0 = Coroutine . fmap (\(b, msf') -> Left $ Request b (msfToCoroutine msf')) $ (unMSF msf) a0
+-- | Isomorphism.
+coroutineToMsf :: Monad m => (a -> Coroutine (Request b a) m Void) -> MSF m a b
+coroutineToMsf f = MSF $ \a0 ->
+  f a0 & \co ->
+    (resume co) <&> \case
+      Right v -> absurd v
+      Left (Request b k) -> (b, coroutineToMsf k)
+
 
 data ActionTag = ActionTag
   { senderId :: Unique
