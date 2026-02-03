@@ -2,6 +2,7 @@
 {-# LANGUAGE BlockArguments #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE RecordWildCards #-}
+{-# OPTIONS_GHC -Wno-orphans #-}
 module Simulation (SimState(..), SimEvent(..), simSF, ObjectIdentifier(..), SFInput(..)) where
 
 import FRP.BearRiver
@@ -15,7 +16,8 @@ import App.Thread.Repl
 import Control.Concurrent.STM
 import Untrusted
 import Spell.Eval
-import Simulation.Objects.All
+import Simulation.Objects.All hiding (Player, TargetSelector)
+import qualified Simulation.Objects.All as O
 import Simulation.Coordinates
 import Data.Foldable
 import Data.Function
@@ -23,6 +25,8 @@ import qualified Data.IntMap.Strict as IntMap
 import Control.Applicative
 import Linear (dot, norm)
 import Simulation.Util
+import Simulation.Component
+import Control.Exception
 
 -- | Tells the UI thread how an object should be drawn.
 data ObjectIdentifier = Player | Firebolt | TargetSelector | LevelGeometry deriving (Eq, Ord, Show, Generic)
@@ -69,6 +73,10 @@ instance Semigroup SFInput where
 instance Monoid SFInput where
   mempty = SFInput empty empty empty
 
+type instance ObjectM = EvalT Untrusted IO
+type instance InterpreterReturn = STM ()
+type instance InterpreterError = Untrusted SomeException
+
 simSF :: SF (EvalT Untrusted IO) (Event SFInput) (SimState, Event SimEvent)
 simSF = arr (event mempty id) >>> proc SFInput{gameInput = u, termStdin = stdin, interpretRequest = req} -> do
   simInput <- generaliseSF processInput -< u
@@ -85,15 +93,18 @@ simSF = arr (event mempty id) >>> proc SFInput{gameInput = u, termStdin = stdin,
            in (fmap submitResult toInterpret', submitException, pure)
       playerIn = PlayerInput { simInput, actions = NoEvent }
       spellInterpreterIn = SpellInterpreterInput { replInput, stdin, exception = NoEvent, completeActions = NoEvent, completeInputTargets = NoEvent }
-      objsInput = mempty { player = playerIn, spellInterpreter = spellInterpreterIn }
-  !objsOut <- objectsSF objsOutput0 objs0 -< objsInput
-  let PlayerOutput{..} = player objsOut
-      SpellInterpreterOutput{..} = spellInterpreter objsOut
-      targetSelectorOut = targetSelector objsOut
+      objsInput = WrappedInputs $ \case
+        O.Player -> playerIn
+        SpellInterpreter -> spellInterpreterIn
+        _ -> mempty
+  objsOut <- objectsSF objsOutput0 objs0 -< objsInput
+  let !PlayerOutput{..} = unwrapOutputs objsOut O.Player
+      !SpellInterpreterOutput{..} = unwrapOutputs objsOut O.SpellInterpreter
+      targetSelectorOut = unwrapOutputs objsOut O.TargetSelector
       playerPos = V2 playerX playerY
       simEvent1 = fmap (\r -> mempty { interpretResponse = r }) replResponse
       simEvent2 = fmap (\cs -> mempty { spellOutput = cs }) stdout
-      FireboltOutputs fireboltStates = firebolts objsOut
+      FireboltOutputs !fireboltStates = unwrapOutputs objsOut O.Firebolts
   
   -- Lag camera slightly behind the player position
   playerXLagged <- delay 0.5 0 -< playerX
@@ -122,26 +133,28 @@ simSF = arr (event mempty id) >>> proc SFInput{gameInput = u, termStdin = stdin,
     , playerMaxMana
     }, mergeBy (<>) simEvent1 simEvent2)
   where
-    objs0 = Objects
-      { player = Identity (PlayerObject playerObj)
-      , firebolts = Identity (FireboltsObject fireboltsObj)
-      , spellInterpreter = Identity (SpellInterpreterObject spellInterpreterObj)
-      , targetSelector = Identity (TargetSelectorObject targetSelectorObj)
-      }
-    objsOutput0 = Objects
-      { player = PlayerOutput
+    objs0 :: Obj x y -> Component Obj ObjectM x y
+    objs0 = \case
+      O.Player -> playerObj
+      Firebolts -> fireboltsObj
+      SpellInterpreter -> error "todo"
+      O.TargetSelector -> targetSelectorObj
+      StaticGeometry -> error "todo"
+    objsOutput0 :: ComponentOutputs Obj
+    objsOutput0 = \case
+      O.Player -> PlayerOutput
         { playerX = 0
         , playerY = 0
         , playerMana = 100
         , playerMaxMana = 100
         , playerFacingDirection = V2 1 0
         }
-      , firebolts = FireboltOutputs mempty
-      , spellInterpreter = SpellInterpreterOutput
+      Firebolts -> FireboltOutputs mempty
+      SpellInterpreter -> SpellInterpreterOutput
         { replResponse = NoEvent
         , stdout = NoEvent
         , blocked = Nothing
         , runningActions = mempty
         }
-      , targetSelector = TargetSelectorOutput{targetX = 0, targetY = 0, select = NoEvent, visible = False}
-      }
+      O.TargetSelector -> TargetSelectorOutput{targetX = 0, targetY = 0, select = NoEvent, visible = False}
+      StaticGeometry -> error "todo"

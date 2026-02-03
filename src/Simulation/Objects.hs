@@ -41,8 +41,9 @@ objectsSF
   :: (Monad ObjectM, ValidObjects [ Player, Firebolts, SpellInterpreter, TargetSelector ])
   => ComponentOutputs Obj
   -> (forall x y. Obj x y -> Component Obj ObjectM x y)
-  -> SF ObjectM (ComponentInputs Obj) (ComponentOutputs Obj)
-objectsSF objOutputs0 objs = (>>> arr unwrapOutputs) . runComponent objOutputs0 $ proc inputs -> do
+  -> SF ObjectM (WrappedInputs Obj) (WrappedOutputs Obj)
+objectsSF objOutputs0 objs = runComponent objOutputs0 $ proc inputs1 -> do
+  let WrappedInputs inputs = inputs1
   playerOut <- objs Player -< inputs Player
   fireboltsOut <- objs Firebolts -< inputs Firebolts
   -- spellInterpreterOut <- objs SpellInterpreter -< inputs SpellInterpreter

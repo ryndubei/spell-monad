@@ -4,6 +4,7 @@
 {-# LANGUAGE ImpredicativeTypes #-}
 {-# LANGUAGE LiberalTypeSynonyms #-}
 {-# LANGUAGE PartialTypeSignatures #-}
+{-# LANGUAGE LambdaCase #-}
 module Simulation.Objects.Player (playerObj, module Simulation.Objects.Player.Types) where
 
 import Simulation.Objects
@@ -42,12 +43,12 @@ playerManaRegenRate = 5
 holdJust :: forall m a. Monad m => a -> SF m (Maybe a) a
 holdJust a0 = arr maybeToEvent >>> hold a0
 
-playerObj :: forall e m r. Monad m => Component Obj m PlayerInput PlayerOutput
-playerObj = toComponent $ loopPre playerMaxMana $ proc ((playerIn1, objsOutput), lastPlayerMana) -> do
+playerObj :: forall m. Monad m => Component Obj m PlayerInput PlayerOutput
+playerObj = shrinkComponent . toComponent $ loopPre playerMaxMana $ proc ((playerIn1, objsOutput), lastPlayerMana) -> do
 
 
   -- while TargetSelector is visible, route all user input to it
-  let (playerIn, targetSelectorIn) = if visible (targetSelector objsOutput)
+  let (playerIn, targetSelectorIn) = if visible (objsOutput TargetSelector)
       then (playerIn1{simInput = mempty}, mempty{targetSelectorInput = simInput playerIn1})
       else (playerIn1, mempty)
 
@@ -64,19 +65,19 @@ playerObj = toComponent $ loopPre playerMaxMana $ proc ((playerIn1, objsOutput),
   manaRegenEvent <- repeatedly 1 () -< ()
   let newMana1 = event lastPlayerMana id $ min playerMaxMana (lastPlayerMana + playerManaRegenRate) <$ manaRegenEvent
 
-  let actions' = zip [0..] <$> actions playerIn
+  -- let actions' = zip [0..] <$> actions playerIn
 
-  (playerMana, objsInput) <- dynCollection -< (newMana1, _, _)
+  -- (playerMana, objsInput, _) <- dynCollection -< (newMana1, _, _)
 
   let playerOutput = PlayerOutput
         { playerX = pos' ^. _x
         , playerY = pos' ^. _y
-        , playerMana
+        , playerMana = newMana1
         , playerMaxMana
         , playerFacingDirection
         }
 
-  returnA -< ((playerOutput, objsInput <> mempty{targetSelector = targetSelectorIn}), playerMana)
+  returnA -< ((playerOutput, WrappedInputs (\case TargetSelector -> targetSelectorIn; _ -> mempty)), newMana1)
   where
     playerMaxMana = 100
 

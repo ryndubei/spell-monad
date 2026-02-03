@@ -1,6 +1,6 @@
 {-# OPTIONS_GHC -Wno-orphans #-}
 {-# LANGUAGE ImpredicativeTypes #-}
-module Simulation.Objects.SpellInterpreter.Types (SpellInterpreterOutput(..), SpellInterpreterInput(..), Blocked(..), Action(..), unAction, ActionTag(..)) where
+module Simulation.Objects.SpellInterpreter.Types (SpellInterpreterOutput(..), SpellInterpreterInput(..), Blocked(..), Action(..), unAction, ActionTag(..), InterpreterReturn, InterpreterError) where
 
 import Simulation.Objects
 import Spell (SpellT(..))

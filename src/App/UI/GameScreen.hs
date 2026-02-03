@@ -36,6 +36,8 @@ import Brick.Widgets.ProgressBar (progressBar, progressCompleteAttr, progressInc
 import Control.Monad.Reader
 import Data.Time
 import Numeric (showGFloat)
+import Simulation.Objects.Geometry
+import Linear.V2
 
 data Name
   = TerminalCursor
@@ -372,6 +374,7 @@ objectIdToAttr :: ObjectIdentifier -> AttrName
 objectIdToAttr Player = attrName "Player"
 objectIdToAttr Firebolt = attrName "Firebolt"
 objectIdToAttr TargetSelector = attrName "TargetSelector"
+objectIdToAttr LevelGeometry = attrName "LevelGeometry"
 
 directInput :: Key -> [Modifier] -> Maybe UserInput
 directInput KUp _ = Just $ mempty { moveY = 1 }
