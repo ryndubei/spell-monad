@@ -1,6 +1,16 @@
 {-# OPTIONS_GHC -Wno-orphans #-}
 {-# LANGUAGE ImpredicativeTypes #-}
-module Simulation.Objects.SpellInterpreter.Types (SpellInterpreterOutput(..), SpellInterpreterInput(..), Blocked(..), Action(..), unAction, ActionTag(..), InterpreterReturn, InterpreterError) where
+module Simulation.Objects.SpellInterpreter.Types
+  ( SpellInterpreterOutput(..)
+  , SpellInterpreterInput(..)
+  , Blocked(..)
+  , Action(..)
+  , ActionTag(..)
+  , InterpreterReturn
+  , InterpreterError
+  , actionTagToInt
+  , intToActionTag
+  ) where
 
 import Simulation.Objects
 import Spell (SpellT(..))
@@ -18,6 +28,7 @@ import qualified Data.Map.Strict as Map
 import Data.Set (Set)
 import Simulation.Coordinates
 import Simulation.Component
+import GHC.Float
 
 -- | If we have two ActionTags, the greater one is valid.
 --
@@ -25,6 +36,12 @@ import Simulation.Component
 -- That is, we never switch the top-level SpellInterpreter object, and DTime is
 -- always > 0.
 newtype ActionTag = ActionTag { createdAt :: Time } deriving (Eq, Ord)
+
+actionTagToInt :: ActionTag -> Int
+actionTagToInt ActionTag{createdAt} = fromIntegral $ castDoubleToWord64 createdAt
+
+intToActionTag :: Int -> ActionTag
+intToActionTag a = ActionTag (castWord64ToDouble $ fromIntegral a)
 
 data Blocked
   = BlockedOnStdin
@@ -35,15 +52,14 @@ data Blocked
 -- amount of time, and can gradually modify the mana available to it.
 -- Should always be run to completion when received (it will monitor whether it is
 -- still valid or not by itself).
-newtype Action = Action
-  (Task
-    (Event SomeException, ComponentOutputs Obj)
-    (ComponentInputs Obj)
+data Action = Action
+  { actionTag :: !ActionTag
+  , unAction :: Task
+    (Event SomeException, WrappedOutputs Obj)
+    (WrappedInputs Obj)
     (State Double)
-    ())
-
-unAction :: Action -> Task (Event SomeException, ComponentOutputs Obj) (ComponentInputs Obj) (State Double) ()
-unAction (Action t) = t
+    ()
+  }
 
 type family InterpreterError
 

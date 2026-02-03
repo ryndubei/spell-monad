@@ -16,16 +16,12 @@ import Simulation.Coordinates
 import Control.Monad
 import Linear.Epsilon
 import Simulation.Objects.Player.Types
-import Control.Monad.Trans.MSF.State
-import Control.Monad.Trans.MSF.Reader
-import Data.Either
 import qualified Data.IntMap.Strict as IntMap
-import qualified Data.IntSet as IntSet
-import Control.Applicative
 import Simulation.Objects.TargetSelector
 import Data.Bool
 import Simulation.Util
 import Simulation.Component
+import Simulation.Objects.SpellInterpreter.Types
 
 gravityAcceleration :: Fractional a => a
 gravityAcceleration = 9.8
@@ -48,7 +44,7 @@ playerObj = shrinkComponent . toComponent $ loopPre playerMaxMana $ proc ((playe
 
 
   -- while TargetSelector is visible, route all user input to it
-  let (playerIn, targetSelectorIn) = if visible (objsOutput TargetSelector)
+  let (playerIn, targetSelectorIn) = if visible (unwrapOutputs objsOutput TargetSelector)
       then (playerIn1{simInput = mempty}, mempty{targetSelectorInput = simInput playerIn1})
       else (playerIn1, mempty)
 
@@ -65,19 +61,21 @@ playerObj = shrinkComponent . toComponent $ loopPre playerMaxMana $ proc ((playe
   manaRegenEvent <- repeatedly 1 () -< ()
   let newMana1 = event lastPlayerMana id $ min playerMaxMana (lastPlayerMana + playerManaRegenRate) <$ manaRegenEvent
 
-  -- let actions' = zip [0..] <$> actions playerIn
+  let actions' = IntMap.fromList . map (\a -> (actionTagToInt $ actionTag a, unAction a)) <$> actions playerIn
 
-  -- (playerMana, objsInput, _) <- dynCollection -< (newMana1, _, _)
+  (playerMana, _, actionObjInputs) <- generaliseSF dynCollection -< (newMana1, actions', (NoEvent, objsOutput))
+
+  let actionObjInputs' = mconcat $ IntMap.elems actionObjInputs
 
   let playerOutput = PlayerOutput
         { playerX = pos' ^. _x
         , playerY = pos' ^. _y
-        , playerMana = newMana1
+        , playerMana
         , playerMaxMana
         , playerFacingDirection
         }
 
-  returnA -< ((playerOutput, WrappedInputs (\case TargetSelector -> targetSelectorIn; _ -> mempty)), newMana1)
+  returnA -< ((playerOutput, actionObjInputs' <> WrappedInputs (\case TargetSelector -> targetSelectorIn; _ -> mempty)), playerMana)
   where
     playerMaxMana = 100
 

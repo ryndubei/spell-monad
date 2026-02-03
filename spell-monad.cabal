@@ -69,7 +69,7 @@ library
                     , Simulation.Objects.Player
                     , Simulation.Objects.Player.Types
                     , Simulation.Objects.Firebolts
-                    -- , Simulation.Objects.SpellInterpreter
+                    , Simulation.Objects.SpellInterpreter
                     , Simulation.Objects.SpellInterpreter.Types
                     , Simulation.Objects.TargetSelector
                     , Simulation.Objects.Geometry

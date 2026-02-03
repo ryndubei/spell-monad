@@ -137,7 +137,7 @@ simSF = arr (event mempty id) >>> proc SFInput{gameInput = u, termStdin = stdin,
     objs0 = \case
       O.Player -> playerObj
       Firebolts -> fireboltsObj
-      SpellInterpreter -> error "todo"
+      SpellInterpreter -> spellInterpreterObj
       O.TargetSelector -> targetSelectorObj
       StaticGeometry -> error "todo"
     objsOutput0 :: ComponentOutputs Obj

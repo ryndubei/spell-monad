@@ -9,7 +9,6 @@ import Data.Kind
 import Simulation.Component
 import FRP.BearRiver
 import Data.Typeable
-import Control.Monad.Trans.Class
 
 type family ObjIn (o :: ObjType)
 type family ObjOut (o :: ObjType)
@@ -44,13 +43,13 @@ objectsSF
   -> SF ObjectM (WrappedInputs Obj) (WrappedOutputs Obj)
 objectsSF objOutputs0 objs = runComponent objOutputs0 $ proc inputs1 -> do
   let WrappedInputs inputs = inputs1
-  playerOut <- objs Player -< inputs Player
-  fireboltsOut <- objs Firebolts -< inputs Firebolts
-  -- spellInterpreterOut <- objs SpellInterpreter -< inputs SpellInterpreter
-  targetSelOut <- objs TargetSelector -< inputs TargetSelector
+  playerOut <- tagComponent Player $ objs Player -< inputs Player
+  fireboltsOut <- tagComponent Firebolts $ objs Firebolts -< inputs Firebolts
+  spellInterpreterOut <- tagComponent SpellInterpreter $ objs SpellInterpreter -< inputs SpellInterpreter
+  targetSelOut <- tagComponent TargetSelector $ objs TargetSelector -< inputs TargetSelector
   returnA -< WrappedOutputs \case
     Player -> playerOut
     Firebolts -> fireboltsOut
-    SpellInterpreter -> objOutputs0 SpellInterpreter
+    SpellInterpreter -> spellInterpreterOut
     TargetSelector -> targetSelOut
     StaticGeometry -> objOutputs0 StaticGeometry

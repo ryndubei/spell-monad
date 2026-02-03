@@ -4,6 +4,7 @@
 {-# LANGUAGE QuantifiedConstraints #-}
 {-# LANGUAGE ImpredicativeTypes #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE ViewPatterns #-}
 module Simulation.Objects.SpellInterpreter (spellInterpreterObj, module Simulation.Objects.SpellInterpreter.Types) where
 
 import FRP.BearRiver
@@ -39,6 +40,7 @@ import Data.Maybe
 import Control.Monad.Trans.State.Strict (StateT, State)
 import Linear.Metric (normalize)
 import Control.Monad.Trans.Except
+import Simulation.Component
 
 fireboltCost :: Fractional a => a
 fireboltCost = 10
@@ -49,24 +51,21 @@ fireboltSpeed = 10
 catchCost :: Fractional a => a
 catchCost = 10
 
-spellInterpreterObj :: (Monad m, forall x y z. Monoid (ObjsInput x y z)) => Object e m r (SpellInterpreter e m r)
+spellInterpreterObj :: Monad ObjectM => Component Obj ObjectM SpellInterpreterInput SpellInterpreterOutput
 spellInterpreterObj = continuousInterpreter
   where
     nothingInterpreter = constM (pure (def, mempty))
-    continuousInterpreter = proc (o@SpellInterpreterInput{replInput, exception}, objsOutput) -> do
+    continuousInterpreter = shrinkComponent $ proc (o@SpellInterpreterInput{replInput, exception}, objsOutput) -> do
 
-      -- continuousInterpreter must not be switched because of this.
-      -- If it ends up being switched, should move the time measurement further
-      -- outward where it won't be switched.
-      t <- time -< ()
+      t <- toComponent time -< ()
 
-      isf <- newConstantInterpreter -< replInput
+      isf <- toComponent newConstantInterpreter -< replInput
       -- Ignore external exception at time 0: it's meant for the code that is already
       -- running, not the code that we are switching to.
       let isf' = fmap (_1 %~ (\s -> (s{exception = NoEvent})) >=-) isf
           -- Prioritise the user interrupt, since it cannot be caught
           e' = (SomeException UserInterrupt <$ isf) <|> exception
-      rSwitch nothingInterpreter -< ((o{exception = e'}, objsOutput, t), isf')
+      toComponent (drSwitch nothingInterpreter) -< ((o{exception = e'}, objsOutput, t), isf')
     newConstantInterpreter = proc replInput -> do
       returnA -< maybe nothingInterpreter
         (\(s0, collapse, _eFromException) -> constantInterpreter s0 collapse)
@@ -138,25 +137,24 @@ spellInterpreterObj = continuousInterpreter
 
 -- | Small-step semantics for SpellT
 handleSpell
-  :: forall e m r s t blk.
-     ( Monad m
-     , forall x y z. Monoid (ObjsInput x y z)
+  :: forall s t blk.
+     ( Monad ObjectM
      -- using type equality here as a type-level 'let'
-     , s ~ SpellT e (MaybeT m `Product` ReaderT SomeException m) r
+     , s ~ SpellT InterpreterError (MaybeT ObjectM `Product` ReaderT SomeException ObjectM) InterpreterReturn
      , MonadTrans t
      )
-  => (ObjInput (SpellInterpreter e m r), ObjsOutput e m r, Event V)
-  -> (e -> r)
+  => (ObjIn SpellInterpreter, WrappedOutputs Obj, Event V)
+  -> (InterpreterError -> InterpreterReturn)
   -> Time
   -> StateT
        ( s
        , Seq Char -- stdin
        , blk
        , Set ActionTag
-       ) (t m) (ObjOutput (SpellInterpreter e m r), ObjsInput e m r, Maybe Blocked)
+       ) (t ObjectM) (ObjOut SpellInterpreter, WrappedInputs Obj, Maybe Blocked)
 handleSpell
   ( SpellInterpreterInput{exception = toThrow, stdin = newStdin}
-  , Objects{player = PlayerOutput{playerX, playerY, playerFacingDirection}}
+  , ((\f -> f Player) . unwrapOutputs -> PlayerOutput{playerX, playerY, playerFacingDirection})
   , inputTargetV
   )
   collapse
@@ -193,13 +191,13 @@ handleSpell
                 if mana >= fireboltCost
                   then do
                     modify' (subtract fireboltCost)
-                    pure (mempty{firebolts = fin}, Nothing)
+                    pure (\case Firebolts -> fin; _ -> mempty, Nothing)
                   else pure (mempty, Just (SomeException OutOfSideEffects))
           _1 .= s'
           _4 %= Set.insert atag
           pure
             ( def
-            , mempty{player = mempty{actions = Event [a]}}
+            , WrappedInputs \case Player -> mempty{actions = Event [a]}; _ -> mempty
             , Just (BlockedOnAction atag)
             )
         -- 'h' is applied to every Throw in 'expr', including those from cancels
@@ -219,7 +217,7 @@ handleSpell
               s' = catchForFree expr' h' >>= nxt''r
           _1 .= s'
           _4 %= Set.insert atag
-          pure (def, mempty{player = mempty{actions = Event [a]}}, Just (BlockedOnAction atag))
+          pure (def, WrappedInputs \case Player -> mempty{actions = Event [a]}; _ -> mempty, Just (BlockedOnAction atag))
         PutChar c nxt'c -> do
           let s' = SpellT $ join $ lift nxt'c
           _1 .= s'
@@ -243,21 +241,23 @@ handleSpell
               _4 %= Set.insert atag
               pure
                 ( def
-                , mempty{player = mempty{actions = Event [inputTargetAction atag]}}
+                , WrappedInputs \case Player -> mempty{actions = Event [inputTargetAction atag]}; _ -> mempty
                 , Just (BlockedOnInputTarget atag)
                 )
 
 -- | If an exception is received at t=0, the action will not be performed.
 makeAtomicAction
-  :: (forall e m r. Monoid (ObjsInput e m r))
-  => ActionTag
-  -> (forall e m r. ObjsOutput e m r -> State Double (ObjsInput e m r, Maybe SomeException)) -> Action
-makeAtomicAction atag a = Action do
-  (b, ()) <- mkTask $ arrM \(e, oo) -> lift $ case e of
-    Event e' -> pure (mempty{ spellInterpreter = mempty{ completeActions = Event $ Map.singleton atag (Just e') }}, Event ())
+  :: ActionTag
+  -> (ComponentOutputs Obj -> State Double (ComponentInputs Obj, Maybe SomeException)) -> Action
+makeAtomicAction atag a = Action atag do
+  (b, ()) <- mkTask $ arrM \(e, WrappedOutputs oo) -> lift $ case e of
+    Event e' -> pure (WrappedInputs \case SpellInterpreter -> mempty{ completeActions = Event $ Map.singleton atag (Just e') }; _ -> mempty, Event ())
     NoEvent -> do
       (oi, mex) <- a oo
-      pure (oi{spellInterpreter = spellInterpreter oi <> mempty{ completeActions = Event $ Map.singleton atag mex}}, Event ())
+      pure ( WrappedInputs oi <> WrappedInputs \case
+              SpellInterpreter -> mempty{ completeActions = Event $ Map.singleton atag mex}
+              _ -> mempty
+           , Event ())
   shriek b
 
 -- | Run the given Task to completion, interrupting immediately without handling on an exception.
@@ -266,12 +266,11 @@ makeAtomicAction atag a = Action do
 -- Tells SpellInterpreter about the exit status of the task if terminated for
 -- another reason.
 makeLongAction
-  :: (forall e m r. Monoid (ObjsInput e m r))
-  => ActionTag
-  -> (forall e m r. Task (ObjsOutput e m r) (ObjsInput e m r) (State Double) (Maybe SomeException))
+  :: ActionTag
+  -> Task (WrappedOutputs Obj) (WrappedInputs Obj) (State Double) (Maybe SomeException)
   -> Action
-makeLongAction atag t = Action $ fmap snd . mkTask $ proc (e, oo) -> do
-  let SpellInterpreterOutput{runningActions} = spellInterpreter oo
+makeLongAction atag t = Action atag $ fmap snd . mkTask $ proc (e, oo) -> do
+  let SpellInterpreterOutput{runningActions} = unwrapOutputs oo SpellInterpreter
       -- important: we should be able to verify by observation that _this_ action
       -- (i.e. makeLongAction) is running already at t=0
       actionRunning = atag `Set.member` runningActions
@@ -280,19 +279,19 @@ makeLongAction atag t = Action $ fmap snd . mkTask $ proc (e, oo) -> do
       returnA -< (mempty, Event ())
     else case e of
       Event e' -> do
-        returnA -< (mempty{spellInterpreter = mempty{completeActions = Event (Map.singleton atag (Just e'))}}, Event ())
+        returnA -< (WrappedInputs \case SpellInterpreter -> mempty{completeActions = Event (Map.singleton atag (Just e'))}; _ -> mempty, Event ())
       NoEvent -> do
         eoi <- runTask t -< oo
         let oi = fromLeft mempty eoi
             internalEx = fromRight NoEvent $ fmap Event eoi
             completion = fmap (Map.singleton atag) internalEx
-            oi' = oi{spellInterpreter = spellInterpreter oi <> mempty{completeActions = completion}}
+            oi' = oi <> WrappedInputs \case SpellInterpreter -> mempty{completeActions = completion}; _ -> mempty
         returnA -< (oi', completion `tag` ())
 
 inputTargetCost :: Num a => a
 inputTargetCost = 25
 
-inputTargetAction :: (forall e m r. Monoid (ObjsInput e m r)) => ActionTag -> Action
+inputTargetAction :: ActionTag -> Action
 -- activate input target, then wait for a response.
 inputTargetAction atag =
   makeLongAction atag $ fmap (\case Right () -> Nothing; Left err -> Just err) $ runExceptT do
@@ -302,40 +301,18 @@ inputTargetAction atag =
         lift . lift $ modify' (subtract inputTargetCost)
       else do
         throwE $ SomeException OutOfSideEffects 
-    (oi, ()) <- lift $ mkTask $ proc (Objects{targetSelector = TargetSelectorOutput{targetX, targetY, select}}) -> do
+    (oi, ()) <- lift $ mkTask $ proc oo -> do
+      let TargetSelectorOutput{targetX, targetY, select} = unwrapOutputs oo TargetSelector
       -- while the task is running, target selector should be active
-      let oi1 = mempty{targetSelector = mempty{active = True}}
+      let oi1 = WrappedInputs \case TargetSelector -> mempty{active = True}; _ -> mempty
       
       -- the first select event, if it exists, is definitely not addressed to us
       selectEvent <- initially NoEvent -< select
 
       -- if selectEvent, this is the output
-      let oi2 = mempty{spellInterpreter = mempty{completeInputTargets = Event (Map.singleton atag (Right (V2 targetX targetY)))}}
+      let oi2 = WrappedInputs \case
+            SpellInterpreter -> mempty{completeInputTargets = Event (Map.singleton atag (Right (V2 targetX targetY)))}
+            _ -> mempty
 
       returnA -< (if isEvent selectEvent then oi2 else oi1, selectEvent)
     lift $ shriek oi
-
--- mkTask $ switch
---   -- pay mana cost once
---   (constM do
---     mana <- get
---     if mana >= inputTargetCost
---       then do
---         modify' (subtract inputTargetCost)
---         pure ((mempty, NoEvent), Event ())
---       else pure ((mempty, Event (Just (SomeException OutOfSideEffects))), NoEvent)
---   )
---   \() -> proc Objects{targetSelector = TargetSelectorOutput{targetX, targetY, select}} -> do
---     -- while the task is running, target selector should be active
---     let oi1 = mempty{targetSelector = mempty{active = True}}
--- 
---     -- the first select event is definitely not addressed to us
---     selectEvent <- initially NoEvent -< select
--- 
---     -- output on selectEvent
---     let oi2 = mempty{spellInterpreter = mempty{completeInputTargets = Event (Map.singleton atag (Right (V2 targetX targetY)))}}
--- 
---     -- Delay selectEvent so that we can perform the necessary finishing effect
---     selectEvent' <- iPre NoEvent -< selectEvent
--- 
---     returnA -< (if isEvent selectEvent then oi2 else oi1, tag selectEvent' Nothing)
