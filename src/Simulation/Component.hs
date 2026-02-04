@@ -12,6 +12,7 @@ module Simulation.Component
   , toComponent
   -- * Combining components
   , tagComponent
+  , tagComponentAs
   , joinComponents
   -- * Accessing components
   , WrappedInputs(..)
@@ -52,11 +53,25 @@ type ComponentInputs comp = forall x y. (Eq (comp x y), Typeable (comp x y), Mon
 --
 -- WARNING: Reusing the same tag (whether for the same or a different component) is undefined.
 tagComponent :: (Monad m, Monoid a, Eq (comp a b), Typeable (comp a b)) => comp a b -> Component comp m a b -> Component comp m a b
-tagComponent comp component = Component
+tagComponent comp component = tagComponentAs comp (<>) id component
+
+-- | Give a name to a component, registering it for interaction by other components by address.
+--
+-- A component may have multiple names.
+--
+-- WARNING: Reusing the same tag (whether for the same or a different component) is undefined.
+tagComponentAs
+  :: (Monad m, Monoid a, Eq (comp a b), Typeable (comp a b))
+  => comp a b
+  -> (x -> a -> x)
+  -> (y -> b)
+  -> Component comp m x y
+  -> Component comp m x y
+tagComponentAs comp appendA fromOut component = Component
   { componentSF =
-      arr (\(a, selIn, selOut) -> (a <> selIn comp, selIn, selOut))
+      arr (\(a, selIn, selOut) -> (appendA a (selIn comp), selIn, selOut))
       >>> componentSF component
-      >>> arr (\(b, selOut, selIn) -> (b, overrideOutput selOut comp b, selIn))
+      >>> arr (\(b, selOut, selIn) -> (b, overrideOutput selOut comp (fromOut b), selIn))
   , definedOn = SomeComp comp Seq.<| definedOn component
   }
 
