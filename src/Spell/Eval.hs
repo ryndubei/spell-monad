@@ -1,8 +1,8 @@
 {-# LANGUAGE BlockArguments #-}
 {-# LANGUAGE ApplicativeDo #-}
-module Spell.Eval (evalSpellUntrusted, runEvalUntrusted, EvalT, untrustedAllocationLimit) where
+module Spell.Eval (evalSpellUntrusted) where
 
-import Spell (SpellT(..), SpellF(..), mapSpellException, Spell(..), generaliseSpell, hoistSpellT, joinSpellT, spellExceptionFromException, spellExceptionToException)
+import Spell (SpellT(..), SpellF(..), mapSpellException, Spell(..), generaliseSpell, spellExceptionFromException, spellExceptionToException)
 import Data.Functor.Identity
 import Control.Monad.Trans.Free
 import Control.DeepSeq
@@ -16,51 +16,56 @@ import Data.Kind
 import DependentSums
 import Untrusted
 import Control.Exception
-import Control.Monad.Trans.Reader
-import Control.Monad.IO.Class
-import Control.Monad.Trans.Maybe
 import Foreign (Int64)
-import Control.Monad.Fix
+import Control.Monad.Trans.Maybe
+import Control.Concurrent.Async
+import System.Mem.Weak
+import Data.Bifunctor
 
 untrustedAllocationLimit :: Int64
 untrustedAllocationLimit = 2^(20 :: Int64) -- 10MiB in bytes
 
-runEvalUntrusted :: EvalT Untrusted IO a -> IO a
-runEvalUntrusted (EvalT r) = r
+startEval :: NFData a => Untrusted a -> IO (EvalHandle a)
+startEval u = do
+  uninterruptibleMask_ do
+    evalAsync <- async do
+      withTrusted (Just untrustedAllocationLimit) u wait
+    -- Problem: observe that we cannot use withTrusted directly, so the
+    -- async has to be cancelled explicitly.
+    --
+    -- Here, we choose to make it the garbage collector's problem via
+    -- finalizers, so that some kind of 'cancelEval' operation does not have to
+    -- be called manually.
+    --
+    -- An alternative approach is to make evalSpellUntrusted transform into something like
+    -- SpellT _ (IO `Compose` (MaybeT IO) `Product` (ReaderT SomeException IO) `Compose` _)
+    -- so that the user can cancel the async manually instead, but that is ugly and
+    -- error-prone.
+    addFinalizer evalAsync (uninterruptibleCancel evalAsync)
+    pure $ EvalHandle {evalAsync}
 
--- | Some delayed evaluation strategy of 'u' in 'n'.
-newtype EvalT u n a = EvalT (n a)
-  deriving (Functor, Applicative, Monad, MonadIO, MonadFix)
+newtype EvalHandle x = EvalHandle { evalAsync :: Async (Either (Untrusted SomeException) x) } deriving Functor
 
-instance MonadTrans (EvalT u) where
-  {-# INLINE lift #-}
-  lift = EvalT
+pollEval :: EvalHandle x -> IO (Maybe (Either (Untrusted SomeException) x))
+pollEval = fmap (fmap (join . first toUntrusted)) . poll . evalAsync
 
--- | EvalSpell' specialised to Untrusted
+-- | EvalSpell' specialised to Untrusted.
 evalSpellUntrusted :: forall a.
      Untrusted (Spell a)
   -> SpellT
       (Untrusted SomeException)
-      (MaybeT (EvalT Untrusted IO) `Product` ReaderT SomeException (EvalT Untrusted IO))
+      (IO `Compose` (MaybeT IO) `Compose` Either (Untrusted SomeException))
       (Untrusted a)
 evalSpellUntrusted =
-    joinSpellT
-    . hoistSpellT (\(Identity a) -> SpellT $ FreeT $ Pair (pure $ Pure a) (ReaderT \e -> pure (Free $ Throw (pure e))))
-    . evalSpell untrustedCommSome (Identity . unsafeFromUntrusted)
+    evalSpell untrustedCommSome
+      (\u -> Compose do
+          h <- startEval u
+          pure $ Compose $ MaybeT $ pollEval h
+      )
     . mapSpellException spellExceptionToException spellExceptionFromException
     . join
     . lift
     . fmap generaliseSpell
-
--- | Monoid instance for sequentially composing Applicatives.
-newtype Semicolonable f = Semicolonable (f ())
-
-instance Applicative f => Semigroup (Semicolonable f) where
-  (<>) (Semicolonable a) (Semicolonable b) = Semicolonable $ a <* b
-
-instance Applicative f => Monoid (Semicolonable f) where
-  mempty = Semicolonable (pure ())
-
 
 -- | Turn a particular unnatural transformation into a natural transformation.
 evalSpell
