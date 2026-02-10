@@ -2,7 +2,7 @@
 {-# LANGUAGE ApplicativeDo #-}
 module Spell.Eval (evalSpellUntrusted) where
 
-import Spell (SpellT(..), SpellF(..), mapSpellException, Spell(..), generaliseSpell, spellExceptionFromException, spellExceptionToException)
+import Spell (SpellT(..), SpellF(..), mapSpellException, Spell(..), generaliseSpell)
 import Data.Functor.Identity
 import Control.Monad.Trans.Free
 import Control.DeepSeq
