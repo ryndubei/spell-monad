@@ -29,6 +29,7 @@ import Data.Foldable
 import Spell.Eval
 import Untrusted
 import Data.List (uncons)
+import System.Mem
 
 -- | A request to carry out some side effects in the game.
 data InterpretRequest =
@@ -179,6 +180,7 @@ withReplThread k = do
           liftIO $ atomically do
             interrupted <- readTVar replInterrupt
             unless interrupted $ writeTVar replBlocked False
+          liftIO performMajorGC
 
       pure $ either id absurd e
     \replThreadAsync -> k ReplThread{..}
