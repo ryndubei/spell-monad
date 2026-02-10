@@ -59,7 +59,7 @@ evalSpellUntrusted =
           h <- startEval u
           pure $ Compose . fmap (first $ fmap \(SomeException e) -> makeCatchable e) $ MaybeT $ pollEval h
       )
-    . mapSpellException spellExceptionToException spellExceptionFromException
+    . mapSpellException toException fromException
     . join
     . lift
     . fmap generaliseSpell

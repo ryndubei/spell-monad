@@ -42,12 +42,12 @@ import Data.MonadicStreamFunction.InternalCore (MSF(..))
 import Data.Functor ((<&>))
 import Data.Function ((&))
 import Control.Exception
-import Spell (spellExceptionToException, SomeSpellException(..))
+import Spell (spellExceptionToException)
 
 -- | To make it possible for player code to catch some exception 'e',
 -- it should be wrapped as 'makeCatchable e'.
 makeCatchable :: Exception e => e -> SomeException
-makeCatchable = spellExceptionToException . SomeSpellException
+makeCatchable = spellExceptionToException
 
 -- | Isomorphism.
 msfToCoroutine  :: Monad m => MSF m a b -> a -> Coroutine (Request b a) m void
