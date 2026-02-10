@@ -16,11 +16,11 @@ import Data.Kind
 import DependentSums
 import Untrusted
 import Control.Exception
-import Foreign (Int64)
 import Control.Monad.Trans.Maybe
 import Control.Concurrent.Async
 import System.Mem.Weak
 import Data.Bifunctor
+import Simulation.Util
 
 startEval :: NFData a => Untrusted a -> IO (EvalHandle a)
 startEval u = do
@@ -57,7 +57,7 @@ evalSpellUntrusted =
     evalSpell untrustedCommSome
       (\u -> Compose do
           h <- startEval u
-          pure $ Compose $ MaybeT $ pollEval h
+          pure $ Compose . fmap (first $ fmap \(SomeException e) -> makeCatchable e) $ MaybeT $ pollEval h
       )
     . mapSpellException spellExceptionToException spellExceptionFromException
     . join

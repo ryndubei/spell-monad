@@ -18,6 +18,7 @@ module Simulation.Util
   , Epoch
   , msfToCoroutine
   , coroutineToMsf
+  , makeCatchable
   ) where
 
 import FRP.BearRiver
@@ -40,6 +41,13 @@ import Data.Void
 import Data.MonadicStreamFunction.InternalCore (MSF(..))
 import Data.Functor ((<&>))
 import Data.Function ((&))
+import Control.Exception
+import Spell (spellExceptionToException, SomeSpellException(..))
+
+-- | To make it possible for player code to catch some exception 'e',
+-- it should be wrapped as 'makeCatchable e'.
+makeCatchable :: Exception e => e -> SomeException
+makeCatchable = spellExceptionToException . SomeSpellException
 
 -- | Isomorphism.
 msfToCoroutine  :: Monad m => MSF m a b -> a -> Coroutine (Request b a) m void

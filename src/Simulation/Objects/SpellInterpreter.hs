@@ -16,7 +16,7 @@ import Simulation.Objects
 import Control.Exception
 import Control.Monad.Reader
 import Control.Monad.Trans.Maybe
-import Spell (SpellT(..), SpellF (..), SomeSpellException(..), spellExceptionToException)
+import Spell (SpellT(..), SpellF (..))
 import Control.Monad.State.Class
 import Data.Sequence (Seq)
 import qualified Data.Sequence as Seq
@@ -38,7 +38,7 @@ import Control.Monad.Trans.State.Strict (StateT, State)
 import Linear.Metric (normalize)
 import Control.Monad.Trans.Except
 import Simulation.Component
-import Simulation.Util (coroutineToMsf)
+import Simulation.Util (coroutineToMsf, makeCatchable)
 import Data.IntSet
 import Control.Monad.Coroutine.SuspensionFunctors
 import Control.Monad.Coroutine
@@ -193,9 +193,6 @@ request' hout = do
     Nothing -> pure ()
     Just e -> lift $ throwE (convertError e)
   pure hin
-
-makeCatchable :: Exception e => e -> SomeException
-makeCatchable = spellExceptionToException . SomeSpellException
 
 billFor :: Double -> ActionTag () -> Action
 billFor cost atag = makeAtomicAction atag \_ -> do
