@@ -61,7 +61,7 @@ playerObj = shrinkComponent . toComponent $ loopPre playerMaxMana $ proc ((playe
   manaRegenEvent <- repeatedly 1 () -< ()
   let newMana1 = event lastPlayerMana id $ min playerMaxMana (lastPlayerMana + playerManaRegenRate) <$ manaRegenEvent
 
-  let actions' = IntMap.fromList . map (\a -> (actionTagToInt $ actionTag a, unAction a)) <$> actions playerIn
+  let actions' = IntMap.fromList . map (\a@Action{actionTag} -> (actionId $ actionTag, unAction a)) <$> actions playerIn
 
   (playerMana, _, actionObjInputs) <- generaliseSF dynCollection -< (newMana1, actions', (NoEvent, objsOutput))
 

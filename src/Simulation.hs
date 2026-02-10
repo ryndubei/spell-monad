@@ -73,11 +73,11 @@ instance Semigroup SFInput where
 instance Monoid SFInput where
   mempty = SFInput empty empty empty
 
-type instance ObjectM = EvalT Untrusted IO
+type instance ObjectM = IO
 type instance InterpreterReturn = STM ()
 type instance InterpreterError = Untrusted SomeException
 
-simSF :: SF (EvalT Untrusted IO) (Event SFInput) (SimState, Event SimEvent)
+simSF :: SF IO (Event SFInput) (SimState, Event SimEvent)
 simSF = arr (event mempty id) >>> proc SFInput{gameInput = u, termStdin = stdin, interpretRequest = req} -> do
   simInput <- generaliseSF processInput -< u
 
@@ -92,7 +92,7 @@ simSF = arr (event mempty id) >>> proc SFInput{gameInput = u, termStdin = stdin,
                 Just s -> s (Right a)
            in (fmap submitResult toInterpret', submitException, pure)
       playerIn = PlayerInput { simInput, actions = NoEvent }
-      spellInterpreterIn = SpellInterpreterInput { replInput, stdin, exception = NoEvent, completeActions = NoEvent, completeInputTargets = NoEvent }
+      spellInterpreterIn = SpellInterpreterInput { replInput, stdin, exception = NoEvent, completeActions = NoEvent }
       objsInput = WrappedInputs $ \case
         O.Player -> playerIn
         SpellInterpreter -> spellInterpreterIn

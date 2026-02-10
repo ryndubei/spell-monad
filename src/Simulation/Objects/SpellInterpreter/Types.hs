@@ -1,5 +1,9 @@
 {-# OPTIONS_GHC -Wno-orphans #-}
 {-# LANGUAGE ImpredicativeTypes #-}
+{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE BlockArguments #-}
+{-# LANGUAGE RoleAnnotations #-}
+{-# LANGUAGE PartialTypeSignatures #-}
 module Simulation.Objects.SpellInterpreter.Types
   ( SpellInterpreterOutput(..)
   , SpellInterpreterInput(..)
@@ -8,8 +12,9 @@ module Simulation.Objects.SpellInterpreter.Types
   , ActionTag(..)
   , InterpreterReturn
   , InterpreterError
-  , actionTagToInt
+  , timeToActionTag
   , intToActionTag
+  , unAction
   ) where
 
 import Simulation.Objects
@@ -18,57 +23,100 @@ import Data.Sequence (Seq)
 import FRP.BearRiver
 import Control.Exception
 import Control.Monad.Trans.Maybe
-import Data.Functor.Product
-import Control.Monad.Trans.Reader
 import Control.Applicative
 import Data.Default
 import Control.Monad.Trans.State.Strict
-import Data.Map.Strict (Map)
-import qualified Data.Map.Strict as Map
-import Data.Set (Set)
-import Simulation.Coordinates
 import Simulation.Component
+import Type.Reflection
+import Data.Dependent.Map (DMap)
+import Data.Some (Some)
+import Data.IntSet (IntSet)
 import GHC.Float
+import qualified Data.Dependent.Map as DMap
+import Data.GADT.Compare
+import qualified Data.IntSet as IntSet
+import Data.Kind
+import Data.Functor.Compose
+import Data.GADT.Show
 
--- | If we have two ActionTags, the greater one is valid.
---
--- Wrinkle: this is only sound if later ticks produce strictly greater times.
--- That is, we never switch the top-level SpellInterpreter object, and DTime is
--- always > 0.
-newtype ActionTag = ActionTag { createdAt :: Time } deriving (Eq, Ord)
+data ActionTag c = ActionTag
+  { actionId :: !Int -- ^ Should be unique.
+  , actionTy :: !(TypeRep c)
+  } deriving (Eq, Ord, Show)
 
-actionTagToInt :: ActionTag -> Int
-actionTagToInt ActionTag{createdAt} = fromIntegral $ castDoubleToWord64 createdAt
+type role ActionTag nominal
 
-intToActionTag :: Int -> ActionTag
-intToActionTag a = ActionTag (castWord64ToDouble $ fromIntegral a)
+instance GEq ActionTag where
+  geq = defaultGeq
+instance GCompare ActionTag where
+  gcompare at1 at2 = case compare (actionId at1) (actionId at2) of
+    LT -> GLT
+    GT -> GGT
+    EQ -> gcompare (actionTy at1) (actionTy at2)
+
+instance GShow ActionTag where
+  gshowsPrec = defaultGshowsPrec
+
+timeToActionTag :: Typeable c => Time -> ActionTag c
+timeToActionTag = intToActionTag . fromIntegral . castDoubleToWord64
+
+intToActionTag :: Typeable c => Int -> ActionTag c
+intToActionTag i = ActionTag { actionTy = typeRep, actionId = i}
 
 data Blocked
   = BlockedOnStdin
-  | BlockedOnAction !ActionTag -- ^ unit reply
-  | BlockedOnInputTarget !ActionTag -- vector reply
+  | BlockedOnAction !(Some @Type ActionTag)
 
 -- | Some non-atomic, possibly-terminating operation that can take an arbitrary
 -- amount of time, and can gradually modify the mana available to it.
 -- Should always be run to completion when received (it will monitor whether it is
 -- still valid or not by itself).
-data Action = Action
-  { actionTag :: !ActionTag
-  , unAction :: Task
-    (Event SomeException, WrappedOutputs Obj)
+data Action = forall c. Action
+  { actionTag :: !(ActionTag c)
+  , actionTask :: Task
+    (WrappedOutputs Obj)
     (WrappedInputs Obj)
     (State Double)
-    ()
+    (Either SomeException c)
   }
+
+unAction :: Action -> Task (Event SomeException, WrappedOutputs Obj) (WrappedInputs Obj) (State Double) ()
+unAction Action{actionTask, actionTag} = do
+  let task = mkTask' (arr snd >>> runTask actionTask)
+  c <- task `abortWhen` monitor
+  let (inputs, result) = case c of
+        -- action completed
+        Left (Left c') -> (mempty, Just c')
+        -- action cancelled and completed at the same time,
+        -- should not send result
+        Left (Right (_c', Left ())) -> (mempty, Nothing)
+        -- action received an exception at the same time as completed,
+        -- should prioritise action result
+        Left (Right (c', Right _)) -> (mempty, Just c')
+        -- action cancelled without completing, should
+        -- preserve its intermediate outputs
+        Right (ins, eex) -> (ins, either (const Nothing) (Just . Left) eex)
+
+      completeActions = case result of
+        Nothing -> NoEvent
+        Just r -> Event (DMap.singleton actionTag r)
+
+  shriek $ inputs <> WrappedInputs \case
+    SpellInterpreter -> mempty{completeActions}
+    _ -> mempty
+  where
+    monitor = proc (e1, WrappedOutputs oo) -> do
+      let isActionRunning = actionId actionTag `IntSet.member` (runningActions $ oo SpellInterpreter)
+      e2 <- iEdge False -< not isActionRunning
+      returnA -< lMerge (fmap Left e2) (fmap Right e1)
 
 type family InterpreterError
 
 data SpellInterpreterInput = SpellInterpreterInput
-  { replInput :: Event (Maybe (SpellT InterpreterError (MaybeT ObjectM `Product` ReaderT SomeException ObjectM) InterpreterReturn, InterpreterError -> InterpreterReturn, SomeException -> InterpreterError))
+  { replInput :: Event (Maybe (SpellT InterpreterError (ObjectM `Compose` MaybeT ObjectM `Compose` Either InterpreterError) InterpreterReturn, InterpreterError -> InterpreterReturn, SomeException -> InterpreterError))
   , stdin :: Event (Seq Char) -- ^ Unblocks BlockedOnStdin if non-empty
   , exception :: Event SomeException -- ^ Async exception. Unblocks anything.
-  , completeActions :: Event (Map ActionTag (Maybe SomeException)) -- ^ Unblocks BlockedOnAction, possibly with a synchronous exception.
-  , completeInputTargets :: Event (Map ActionTag (Either SomeException V)) -- ^ Unblocks BlockedOnInputTarget.
+  , completeActions :: Event (DMap ActionTag (Either SomeException)) -- ^ Unblocks BlockedOnAction, possibly with a synchronous exception.
   }
 
 type instance ObjIn SpellInterpreter = SpellInterpreterInput
@@ -79,9 +127,7 @@ data SpellInterpreterOutput = SpellInterpreterOutput
   { replResponse :: !(Event InterpreterReturn)
   , stdout :: !(Event (Seq Char))
   , blocked :: !(Maybe Blocked)
-  , runningActions :: !(Set ActionTag)
-    -- ^ Note: currently, only one action will be running at a time. Written
-    -- this way for ease of reasoning.
+  , runningActions :: !IntSet -- ^ Action IDs
   }
 
 type instance ObjOut SpellInterpreter = SpellInterpreterOutput
@@ -94,9 +140,8 @@ instance Semigroup SpellInterpreterInput where
     { replInput = replInput si2 <|> replInput si1
     , stdin = mergeBy (<>) (stdin si1) (stdin si2)
     , exception = exception si1 <|> exception si2
-    , completeActions = mergeBy Map.union (completeActions si1) (completeActions si2)
-    , completeInputTargets = mergeBy Map.union (completeInputTargets si1) (completeInputTargets si2)
+    , completeActions = mergeBy DMap.union (completeActions si1) (completeActions si2)
     }
 
 instance Monoid SpellInterpreterInput where
-  mempty = SpellInterpreterInput empty empty empty empty empty
+  mempty = SpellInterpreterInput empty empty empty empty

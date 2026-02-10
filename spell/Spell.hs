@@ -157,9 +157,7 @@ data SomeSpellException = forall e. Exception e => SomeSpellException e
 instance Show SomeSpellException where
   show (SomeSpellException e) = show e
 
-instance Exception SomeSpellException where
-  toException = spellExceptionToException
-  fromException = spellExceptionFromException
+instance Exception SomeSpellException
 
 spellExceptionToException :: Exception e => e -> SomeException
 spellExceptionToException = toException . SomeSpellException

@@ -9,11 +9,13 @@ import Control.Concurrent.Async
 import Control.Monad
 import Data.Int
 import System.Mem
-import Data.Foldable
 import Data.Some.Newtype
 import Data.Functor.Compose
 import Foreign.StablePtr
 import Control.Concurrent
+
+untrustedAllocationLimit :: Int64
+untrustedAllocationLimit = 2^(20 :: Int64) -- 10MiB in bytes
 
 -- Deliberately not a newtype, so that it cannot be forced.
 data Untrusted a = Untrusted a deriving Functor
@@ -46,11 +48,10 @@ instance Exception SomeImpreciseException
 {-# INLINE withTrusted #-}
 withTrusted
   :: NFData a
-  => Maybe Int64 -- ^ Allocation limit in bytes. Disabled if Nothing.
-  -> Untrusted a
+  => Untrusted a
   -> (Async (Either (Untrusted SomeException) a) -> IO b)
   -> IO b
-withTrusted allocationLimit (Untrusted a) = withAsync do
+withTrusted (Untrusted a) = withAsync do
   catch
     do
       -- https://well-typed.com/blog/2024/01/when-blocked-indefinitely-is-not-indefinite/
@@ -63,7 +64,8 @@ withTrusted allocationLimit (Untrusted a) = withAsync do
         (newStablePtr =<< myThreadId)
         freeStablePtr
         \_ -> do
-          traverse_ (setAllocationCounter >=> const enableAllocationLimit) allocationLimit
+          setAllocationCounter untrustedAllocationLimit
+          enableAllocationLimit
           catch
             (fmap Right . evaluate . mapException SomeImpreciseException $ force a)
             \(SomeImpreciseException e) -> pure $ Left (toUntrusted e)

@@ -22,14 +22,11 @@ import Control.Concurrent.Async
 import System.Mem.Weak
 import Data.Bifunctor
 
-untrustedAllocationLimit :: Int64
-untrustedAllocationLimit = 2^(20 :: Int64) -- 10MiB in bytes
-
 startEval :: NFData a => Untrusted a -> IO (EvalHandle a)
 startEval u = do
   uninterruptibleMask_ do
     evalAsync <- async do
-      withTrusted (Just untrustedAllocationLimit) u wait
+      withTrusted u wait
     -- Problem: observe that we cannot use withTrusted directly, so the
     -- async has to be cancelled explicitly.
     --

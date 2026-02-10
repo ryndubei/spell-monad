@@ -170,7 +170,7 @@ withReplThread k = do
             case u of
               Left e -> handleUntrustedException replResult e
               Right u' -> do
-                u'' <- withTrusted (Just untrustedAllocationLimit) u' wait
+                u'' <- withTrusted u' wait
                 case u'' of
                   Right () -> pure ()
                   Left e -> handleUntrustedException replResult e
@@ -198,7 +198,7 @@ printUntrustedString q u = do
   let u' = fmap uncons u
       uhead = fmap (fmap fst) u'
       utail = fmap (maybe mempty snd) u'
-  ec <- withTrusted (Just untrustedAllocationLimit) uhead wait
+  ec <- withTrusted uhead wait
   case ec of
     Left e -> pure (Just e)
     Right Nothing -> pure Nothing
