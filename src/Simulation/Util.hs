@@ -14,8 +14,6 @@ module Simulation.Util
   ( dynCollection
   , generaliseSF
   , morphSF
-  , ActionTag
-  , Epoch
   , msfToCoroutine
   , coroutineToMsf
   , makeCatchable
@@ -29,12 +27,6 @@ import Data.IntMap.Strict (IntMap)
 import qualified Data.IntMap.Strict as IntMap
 import Data.Either
 import Data.Bifunctor
-import Data.HashMap.Strict (HashMap)
-import Data.Hashable
-import Data.Unique
-import Data.Sequence (Seq)
-import Data.Int (Int64)
-import GHC.Generics
 import Control.Monad.Coroutine
 import Control.Monad.Coroutine.SuspensionFunctors
 import Data.Void
@@ -59,22 +51,6 @@ coroutineToMsf f = MSF $ \a0 ->
     (resume co) <&> \case
       Right v -> absurd v
       Left (Request b k) -> (b, coroutineToMsf k)
-
-
-data ActionTag = ActionTag
-  { senderId :: Unique
-  , actionEpoch :: Epoch
-  } deriving (Eq, Ord, Generic, Hashable)
-
-type Action a b s m c = Task a b (StateT s m) c
-
-actionRunner :: SF m (s, Event (Seq (ActionTag, Action a b s m c))) (s, HashMap ActionTag Int, Event (HashMap ActionTag c))
-actionRunner = undefined
-
--- | Absolute current time in an arbitrary unit. Ord instance respects ordering of time.
-newtype Epoch = Epoch Int64
-  deriving stock (Eq, Ord, Generic)
-  deriving newtype Hashable
 
 type DynCollectionSF a b s m c =
   SF m
