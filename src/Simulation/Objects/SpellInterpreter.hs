@@ -16,7 +16,7 @@ import Simulation.Objects
 import Control.Exception
 import Control.Monad.Reader
 import Control.Monad.Trans.Maybe
-import Spell (SpellT(..), SpellF (..))
+import Spell (SpellT(..), SpellF (..), SomeSpellException(..), spellExceptionToException)
 import Control.Monad.State.Class
 import Data.Sequence (Seq)
 import qualified Data.Sequence as Seq
@@ -194,6 +194,9 @@ request' hout = do
     Just e -> lift $ throwE (convertError e)
   pure hin
 
+makeCatchable :: Exception e => e -> SomeException
+makeCatchable = spellExceptionToException . SomeSpellException
+
 billFor :: Double -> ActionTag () -> Action
 billFor cost atag = makeAtomicAction atag \_ -> do
   mana <- get
@@ -201,7 +204,7 @@ billFor cost atag = makeAtomicAction atag \_ -> do
     then do
       modify' (subtract cost)
       pure (\case _ -> mempty, Right ())
-    else pure (mempty, Left (SomeException OutOfSideEffects))
+    else pure (mempty, Left (makeCatchable OutOfSideEffects))
 
 fireboltAction :: V2 Double -> ActionTag () -> Action
 fireboltAction (V2 faceX faceY) atag = makeAtomicAction atag \oo -> do
@@ -216,7 +219,7 @@ fireboltAction (V2 faceX faceY) atag = makeAtomicAction atag \oo -> do
     then do
       modify' (subtract fireboltCost)
       pure (\case Firebolts -> fin; _ -> mempty, Right ())
-    else pure (mempty, Left (SomeException OutOfSideEffects))
+    else pure (mempty, Left (makeCatchable OutOfSideEffects))
 
 -- | INVARIANT: actionTag must be the one contained in the Action
 sendAction
@@ -272,7 +275,7 @@ inputTargetAction atag =
       then do
         lift . lift $ modify' (subtract inputTargetCost)
       else do
-        throwE $ SomeException OutOfSideEffects 
+        throwE $ makeCatchable OutOfSideEffects 
     lift $ mkTask' $ proc oo -> do
       let TargetSelectorOutput{targetX, targetY, select} = unwrapOutputs oo TargetSelector
       -- while the task is running, target selector should be active
