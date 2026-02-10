@@ -26,7 +26,6 @@ import Control.Monad.Trans.Maybe
 import Data.Void
 import Control.Monad
 import Data.Foldable
-import Spell.Eval
 import Untrusted
 import Data.List (uncons)
 import System.Mem
