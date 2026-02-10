@@ -75,7 +75,6 @@ the player's code.
 ## Planned features
 
 - Binding variables in the REPL.
-- Player code sandboxing. (already implemented for printing uncaught precise exceptions)
 - Code editor.
 - Concurrency. (e.g. `forkSpell`)
 - Enemies, items and levels.
