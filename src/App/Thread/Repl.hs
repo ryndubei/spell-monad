@@ -115,7 +115,7 @@ withReplThread k = do
         initialiseInterpreter
         liftIO . atomically $ writeTVar replInitialised True
 
-        forever . runMaybeT $ do
+        forever . (>> liftIO performMajorGC) . runMaybeT $ do
 
           s <- liftIO $ atomically do
             -- Nothing to interrupt. If the target of the interrupt were to be 
@@ -179,7 +179,6 @@ withReplThread k = do
           liftIO $ atomically do
             interrupted <- readTVar replInterrupt
             unless interrupted $ writeTVar replBlocked False
-          liftIO performMajorGC
 
       pure $ either id absurd e
     \replThreadAsync -> k ReplThread{..}
