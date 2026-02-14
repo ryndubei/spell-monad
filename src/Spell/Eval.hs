@@ -25,24 +25,26 @@ import Control.Concurrent
 
 startEval :: NFData a => Untrusted a -> IO (EvalHandle a)
 startEval u = do
-  evalAsync <- async do
-    withTrusted u wait
+  -- mask to guarantee the finalizer is added
+  mask \restore -> do
+    evalAsync <- async $ restore do
+      withTrusted u wait
 
-  -- Problem: observe that we cannot use withTrusted directly, so the
-  -- async has to be cancelled explicitly.
-  --
-  -- Here, we choose to make it the garbage collector's problem via
-  -- finalizers, so that some kind of 'cancelEval' operation does not have to
-  -- be called manually.
-  --
-  -- An alternative approach is to make evalSpellUntrusted transform into something like
-  -- SpellT _ (IO `Compose` (MaybeT IO) `Product` (ReaderT SomeException IO) `Compose` _)
-  -- so that the user can cancel the async manually instead, but that is ugly and
-  -- error-prone.
+    -- Problem: observe that we cannot use withTrusted directly, so the
+    -- async has to be cancelled explicitly.
+    --
+    -- Here, we choose to make it the garbage collector's problem via
+    -- finalizers, so that some kind of 'cancelEval' operation does not have to
+    -- be called manually.
+    --
+    -- An alternative approach is to make evalSpellUntrusted transform into something like
+    -- SpellT _ (IO `Compose` (MaybeT IO) `Product` (ReaderT SomeException IO) `Compose` _)
+    -- so that the user can cancel the async manually instead, but that is ugly and
+    -- error-prone.
 
-  let tid = asyncThreadId evalAsync
-  addFinalizer evalAsync (killThread tid) -- finalizer should not depend on the Async itself
-  pure $ EvalHandle {evalAsync}
+    let tid = asyncThreadId evalAsync
+    addFinalizer evalAsync (restore $ killThread tid) -- finalizer should not depend on the Async itself
+    pure $ EvalHandle {evalAsync}
 
 newtype EvalHandle x = EvalHandle { evalAsync :: Async (Either (Untrusted SomeException) x) } deriving Functor
 
