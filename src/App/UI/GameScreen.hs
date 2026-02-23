@@ -47,6 +47,9 @@ data Name
   | LogViewport
   deriving (Eq, Ord, Show)
 
+gameZoom :: Fractional a => a
+gameZoom = 2
+
 data AppState = AppState
   { _gameExit :: !(Maybe GameExit)
   , _simState :: !SimState
@@ -338,10 +341,10 @@ drawSimState SimState{..} =
     simStateImage attrmap width height =
       let
         ys :: Vector Double
-        ys = V.map ((+ cameraY) . negate . fromIntegral) $ V.enumFromN (- (height `div` 2)) height
+        ys = V.map ((+ cameraY) . (/ gameZoom) . negate . fromIntegral) $ V.enumFromN (- (height `div` 2)) height
 
         xs :: V.Vector Double
-        xs = V.map ((+ cameraX) . (/ 2) . fromIntegral) $ V.enumFromN (- (width `div` 2)) width
+        xs = V.map ((+ cameraX) . (/ gameZoom) . (/ 2) . fromIntegral) $ V.enumFromN (- (width `div` 2)) width
 
         dists :: V.Vector (V.Vector (ObjectIdentifier, Double))
         dists = flip V.map ys \y -> flip V.map xs \x ->
