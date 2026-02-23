@@ -104,7 +104,7 @@ adHocGeometry = geometryFromString (-5) (-5) $ unlines
 printGeometry :: Geometry -> String
 printGeometry geo@Geometry{ blocks, rowLength, offsetX, offsetY } =
   unlines . V.toList . V.reverse . V.map V.toList $ V.generate nLines \col ->
-    V.generate rowLength \row -> if pollGeometry (V2 (fromIntegral $ row + offsetX) (fromIntegral $ col + offsetY)) geo then '█' else ' '
+    V.generate rowLength \row -> if pollGeometry (V2 ((fromIntegral $ row + offsetX) / 2) (fromIntegral $ col + offsetY)) geo then '█' else ' '
   where
     nLines = U.length blocks `div` rowLength
 
