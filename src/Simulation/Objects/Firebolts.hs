@@ -17,7 +17,7 @@ type instance ObjIn Firebolts = FireboltsInput
 data FireboltsInput = FireboltsInput { spawnFirebolts :: Event [FireboltState], killFirebolts :: Event IntSet }
 type instance ObjOut Firebolts = FireboltOutputs
 newtype FireboltOutputs = FireboltOutputs (IntMap FireboltState)
-data FireboltState = FireboltState { fireboltPos :: !V, fireboltVel :: !V, fireboltRadius :: !Double, lifetime :: !Double } deriving (Eq, Ord, Show)
+data FireboltState = FireboltState { fireboltPos :: !V, fireboltVel :: !V, fireboltRadius :: !Double, lifetime :: !Double } deriving (Eq, Show)
 
 instance Semigroup FireboltsInput where
   (<>) f1 f2 = FireboltsInput

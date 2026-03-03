@@ -14,7 +14,6 @@ import Control.Lens
 import Control.Monad.Fix
 import Simulation.Coordinates
 import Control.Monad
-import Linear.Epsilon
 import Simulation.Objects.Player.Types
 import qualified Data.IntMap.Strict as IntMap
 import Simulation.Objects.TargetSelector
@@ -53,9 +52,9 @@ playerObj = shrinkComponent . toComponent $ loopPre playerMaxMana $ proc ((playe
     (0, 0) -< playerIn
 
   -- Default facing direction is the direction of movement.
-  let (V2 vx _) = simInput playerIn ^. moveVector
+  let (vx :+ _) = simInput playerIn ^. moveVector
   movingRight <- arr (\vx -> (vx > 0) <$ guard (not $ nearZero vx) ) -< vx
-  playerFacingDirection <- holdJust (V2 1 0) -< bool (V2 (-1) 0) (V2 1 0) <$> movingRight
+  playerFacingDirection <- holdJust 1 -< bool (-1) 1 <$> movingRight
 
   -- TODO: continuous regen?
   manaRegenEvent <- repeatedly 1 () -< ()
@@ -68,8 +67,8 @@ playerObj = shrinkComponent . toComponent $ loopPre playerMaxMana $ proc ((playe
   let actionObjInputs' = mconcat $ IntMap.elems actionObjInputs
 
   let playerOutput = PlayerOutput
-        { playerX = pos' ^. _x
-        , playerY = pos' ^. _y
+        { playerX = pos' ^. _e
+        , playerY = pos' ^. _i
         , playerMana
         , playerMaxMana
         , playerFacingDirection
@@ -80,10 +79,10 @@ playerObj = shrinkComponent . toComponent $ loopPre playerMaxMana $ proc ((playe
     playerMaxMana = 100
 
     groundedMovement :: V -> SF Identity PlayerInput (V, Event (V, Double))
-    groundedMovement (V2 x0 _) = proc (PlayerInput{simInput = simInput@SimInput{simJump}}) -> do
-        let (V2 vx _) = playerBaseVelocity * (simInput ^. moveVector)
+    groundedMovement (x0 :+ _) = proc (PlayerInput{simInput = simInput@SimInput{simJump}}) -> do
+        let (vx :+ _) = playerBaseVelocity * (simInput ^. moveVector)
         dx <- integral -< vx
-        let pos' = V2 (x0 + dx) 0
+        let pos' = (x0 + dx) :+ 0
         -- Horizontal velocity is fully determined by the user input, so we only
         -- return the vertical velocity.
         returnA -< (pos', (pos', playerJumpVelocity) <$ simJump)
@@ -91,14 +90,14 @@ playerObj = shrinkComponent . toComponent $ loopPre playerMaxMana $ proc ((playe
     -- Accelerates downwards until both velocity and position would be negative,
     -- then returns an event to switch back to grounded movement.
     fallingMovement :: V -> Double -> SF Identity PlayerInput (V, Event V)
-    fallingMovement (V2 x0 y0) vy0 = proc (PlayerInput{simInput}) -> do
-      let (V2 vx _) = playerBaseVelocity * (simInput ^. moveVector)
+    fallingMovement (x0 :+ y0) vy0 = proc (PlayerInput{simInput}) -> do
+      let (vx :+ _) = playerBaseVelocity * (simInput ^. moveVector)
       dx <- integral -< vx
       dvy <- integral -< gravityAcceleration
       let vy = vy0 - dvy
       dy <- integral -< vy
       rec
-        pos <- iPre (V2 x0 y0) -< pos'
-        let pos' = V2 (x0 + dx) (y0 + dy)
-            grounded = pos' ^. _y <= 0 && (vy <= 0)
+        pos <- iPre (x0 :+ y0) -< pos'
+        let pos' = (x0 + dx) :+ (y0 + dy)
+            grounded = pos' ^. _i <= 0 && (vy <= 0)
       returnA -< (pos', gate (Event pos) grounded)

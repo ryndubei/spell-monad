@@ -23,9 +23,7 @@ import qualified Data.Sequence as Seq
 import Simulation.Objects.Firebolts
 import Control.Monad.Trans.Free
 import Control.Monad
-import Linear.V2
 import Control.Lens
-import Linear.Epsilon
 import Spell.Exception
 import Control.Applicative
 
@@ -35,7 +33,6 @@ import Data.Default
 import Simulation.Coordinates
 import Simulation.Objects.TargetSelector
 import Control.Monad.Trans.State.Strict (StateT, State)
-import Linear.Metric (normalize)
 import Control.Monad.Trans.Except
 import Simulation.Component
 import Simulation.Util (coroutineToMsf, makeCatchable)
@@ -125,7 +122,7 @@ handleSpell' f cont = case f of
   Firebolt faceX faceY nxt -> do
     HIn{newId} <- use currentInput
     let atag = intToActionTag newId :: ActionTag ()
-    () <- sendAction atag (fireboltAction (V2 faceX faceY) atag)
+    () <- sendAction atag (fireboltAction (faceX :+ faceY) atag)
     cont nxt
   PutChar c nxt -> do
     _ <- request' mempty{hStdout = pure c}
@@ -142,7 +139,7 @@ handleSpell' f cont = case f of
             k
   InputTarget nxt'v -> do
     HIn{newId} <- use currentInput
-    let nxt (V2 a b) = fmap (($ b) . ($ a)) nxt'v
+    let nxt (a :+ b) = fmap (($ b) . ($ a)) nxt'v
         atag = intToActionTag newId :: ActionTag V
     v <- sendAction atag (inputTargetAction atag)
     cont (nxt v)
@@ -203,13 +200,13 @@ billFor cost atag = makeAtomicAction atag \_ -> do
       pure (\case _ -> mempty, Right ())
     else pure (mempty, Left (makeCatchable OutOfSideEffects))
 
-fireboltAction :: V2 Double -> ActionTag () -> Action
-fireboltAction (V2 faceX faceY) atag = makeAtomicAction atag \oo -> do
+fireboltAction :: V -> ActionTag () -> Action
+fireboltAction (faceX :+ faceY) atag = makeAtomicAction atag \oo -> do
   let PlayerOutput{..} = oo Player
-      fireboltVel = if nearZero (V2 faceX faceY)
+      fireboltVel = if nearZero (faceX :+ faceY)
         then fireboltSpeed * playerFacingDirection
-        else fireboltSpeed * normalize (V2 faceX faceY)
-      fs = FireboltState { fireboltPos = V2 playerX playerY, fireboltVel, fireboltRadius = 1, lifetime = 10 }
+        else fireboltSpeed * normalize (faceX :+ faceY)
+      fs = FireboltState { fireboltPos = playerX :+ playerY, fireboltVel, fireboltRadius = 1, lifetime = 10 }
       fin = FireboltsInput { killFirebolts = noEvent, spawnFirebolts = Event [fs] }
   mana <- get
   if mana >= fireboltCost
@@ -281,7 +278,7 @@ inputTargetAction atag =
       -- the first select event, if it exists, is definitely not addressed to us
       selectEvent <- initially NoEvent -< select
 
-      returnA -< if isEvent selectEvent then Right (V2 targetX targetY) else Left oi
+      returnA -< if isEvent selectEvent then Right (targetX :+ targetY) else Left oi
 
 spellInterpreterObj :: Monad ObjectM => Component Obj ObjectM SpellInterpreterInput SpellInterpreterOutput
 spellInterpreterObj = continuousInterpreter

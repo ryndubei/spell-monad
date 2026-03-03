@@ -3,11 +3,11 @@
 {-# LANGUAGE LambdaCase #-}
 module Simulation.Objects.Geometry (Geometry, adHocGeometry, pollGeometry, printGeometry) where
 
-import Linear
 import qualified Data.Vector as V
 import qualified Data.Vector.Unboxed as U
 import Data.Maybe
 import Data.Char
+import Simulation.Coordinates
 
 -- | Each point is a 0.5x1-unit 'block' of static terrain.
 data Geometry = Geometry { blocks :: !(U.Vector Bool), offsetX :: !Int, offsetY :: !Int, rowLength :: !Int }
@@ -104,15 +104,15 @@ adHocGeometry = geometryFromString (-5) (-5) $ unlines
 printGeometry :: Geometry -> String
 printGeometry geo@Geometry{ blocks, rowLength, offsetX, offsetY } =
   unlines . V.toList . V.reverse . V.map V.toList $ V.generate nLines \col ->
-    V.generate rowLength \row -> if pollGeometry (V2 ((fromIntegral $ row + offsetX) / 2) (fromIntegral $ col + offsetY)) geo then '█' else ' '
+    V.generate rowLength \row -> if pollGeometry ((fromIntegral $ row + offsetX) / 2 :+ (fromIntegral $ col + offsetY)) geo then '█' else ' '
   where
     nLines = U.length blocks `div` rowLength
 
 -- | Important! defaults to True when out of bounds
 --
 -- (conceptually, the levels take place in a cave)
-pollGeometry :: V2 Double -> Geometry -> Bool
-pollGeometry (V2 x y) Geometry{rowLength, blocks, offsetX, offsetY} =
+pollGeometry :: V -> Geometry -> Bool
+pollGeometry (x :+ y) Geometry{rowLength, blocks, offsetX, offsetY} =
   if xOob || yOob
     then True
     else case blocks U.!? i of

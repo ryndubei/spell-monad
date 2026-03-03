@@ -23,7 +23,6 @@ import Data.Foldable
 import Data.Function
 import qualified Data.IntMap.Strict as IntMap
 import Control.Applicative
-import Linear (dot, norm)
 import Simulation.Util
 import Simulation.Component
 import Control.Exception
@@ -101,7 +100,7 @@ simSF = arr (event mempty id) >>> proc SFInput{gameInput = u, termStdin = stdin,
   let !PlayerOutput{..} = unwrapOutputs objsOut O.Player
       !SpellInterpreterOutput{..} = unwrapOutputs objsOut O.SpellInterpreter
       targetSelectorOut = unwrapOutputs objsOut O.TargetSelector
-      playerPos = V2 playerX playerY
+      playerPos = playerX :+ playerY
       simEvent1 = fmap (\r -> mempty { interpretResponse = r }) replResponse
       simEvent2 = fmap (\cs -> mempty { spellOutput = cs }) stdout
       FireboltOutputs !fireboltStates = unwrapOutputs objsOut O.Firebolts
@@ -114,17 +113,17 @@ simSF = arr (event mempty id) >>> proc SFInput{gameInput = u, termStdin = stdin,
     {
       -- square of diameter 2
       sdf = \(x,y) ->
-        let V2 playerDx playerDy = V2 x y - playerPos
+        let playerDx :+ playerDy = (x :+ y) - playerPos
             playerDistance = max (abs playerDx - 1) (abs playerDy - 1)
             fireboltDistances = map
               (\FireboltState{fireboltPos, fireboltRadius} ->
-                let fireboltDpos = V2 x y - fireboltPos
+                let fireboltDpos = (x :+ y) - fireboltPos
                  in dot fireboltDpos fireboltDpos - fireboltRadius
               ) (snd <$> IntMap.toList fireboltStates)
             targetSelectorDistance = if visible targetSelectorOut
               then 
                 -- relative to player position
-                Just . subtract 0.5 . norm $ V2 x y - (V2 (targetX targetSelectorOut) (targetY targetSelectorOut) + V2 playerX playerY)
+                Just . subtract 0.5 . norm $ (x :+ y) - ((targetX targetSelectorOut :+ targetY targetSelectorOut) + (playerX :+ playerY))
               else Nothing
          in minimumBy (compare `on` snd) $ (Player, playerDistance) : maybe mempty (pure . (TargetSelector,)) targetSelectorDistance ++ map (Firebolt,) fireboltDistances
     , cameraX = playerXLagged
@@ -147,7 +146,7 @@ simSF = arr (event mempty id) >>> proc SFInput{gameInput = u, termStdin = stdin,
         , playerY = 0
         , playerMana = 100
         , playerMaxMana = 100
-        , playerFacingDirection = V2 1 0
+        , playerFacingDirection = 1
         }
       Firebolts -> FireboltOutputs mempty
       SpellInterpreter -> SpellInterpreterOutput

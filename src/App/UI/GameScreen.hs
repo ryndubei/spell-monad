@@ -37,7 +37,7 @@ import Control.Monad.Reader
 import Data.Time
 import Numeric (showGFloat)
 import Simulation.Objects.Geometry
-import Linear.V2
+import Simulation.Coordinates
 
 data Name
   = TerminalCursor
@@ -348,7 +348,7 @@ drawSimState SimState{..} =
 
         dists :: V.Vector (V.Vector (ObjectIdentifier, Double))
         dists = flip V.map ys \y -> flip V.map xs \x ->
-          if pollGeometry (V2 x y) adHocGeometry
+          if pollGeometry (x :+ y) adHocGeometry
             then (LevelGeometry, 0)
             else sdf (x,y)
 

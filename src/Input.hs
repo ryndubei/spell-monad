@@ -12,7 +12,7 @@ data UserInput = UserInput
   } deriving Show
 
 userInputMoveVector :: Lens' UserInput V
-userInputMoveVector = lens (\UserInput{moveX, moveY} -> V2 moveX moveY) (\u (V2 x y) -> u {moveX = x, moveY = y})
+userInputMoveVector = lens (\UserInput{moveX, moveY} -> moveX :+ moveY) (\u (x :+ y) -> u {moveX = x, moveY = y})
 
 -- | Commutative up to floating-point errors.
 instance Semigroup UserInput where

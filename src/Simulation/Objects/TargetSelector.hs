@@ -5,10 +5,9 @@ import Simulation.Objects
 import FRP.BearRiver
 import Simulation.Input
 import Control.Lens
-import Linear.V2
 import Control.Applicative
-import Linear
 import Simulation.Component
+import Simulation.Coordinates
 
 type instance ObjIn TargetSelector = TargetSelectorInput
 data TargetSelectorInput = TargetSelectorInput
@@ -46,7 +45,7 @@ targetSelectorObj = toComponent $ proc (TargetSelectorInput{targetSelectorInput,
 
   -- Delayed switch so that there is time for the selection to be observed from the position
   -- of targetX, targetY
-  V2 dx dy <- drSwitch integral -< (if active then v else 0, integral <$ resetEvent)
+  dx :+ dy <- drSwitch integral -< (if active then v else 0, integral <$ resetEvent)
 
   returnA -< (TargetSelectorOutput
     -- magic number: start slightly offset from the player position

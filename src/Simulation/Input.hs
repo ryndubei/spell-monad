@@ -6,7 +6,6 @@ import Input
 import FRP.Yampa
 import Control.Lens
 import Control.Applicative
-import Linear
 import Simulation.Coordinates
 
 data SimInput = SimInput
@@ -34,12 +33,12 @@ instance Monoid SimInput where
 
 -- | norm (u ^. moveVector) = min 1 (norm u)
 moveVector :: Lens' SimInput V
-moveVector = lens (\SimInput{simMoveX, simMoveY} -> V2 simMoveX simMoveY) (\u (V2 x y) -> u {simMoveX = x, simMoveY = y})
+moveVector = lens (\SimInput{simMoveX, simMoveY} -> simMoveX :+ simMoveY) (\u (x :+ y) -> u {simMoveX = x, simMoveY = y})
 
 -- | Turns a stream of discrete input events into a continuous signal.
 processInput :: SF (Event UserInput) SimInput
 processInput = proc u -> do
-  (V2 simMoveX simMoveY) <- smoothInput -< clampMagnitude . (^. userInputMoveVector) <$> u
+  (simMoveX :+ simMoveY) <- smoothInput -< clampMagnitude . (^. userInputMoveVector) <$> u
   let simJump = tagWith () . filterE id $ fmap jump u
       simEnter = tagWith () . filterE id $ fmap enter u
       inputWeight = 1
