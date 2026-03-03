@@ -95,6 +95,7 @@ library
                     , free
                     , hashable
                     , hint
+                    , ieee
                     , lens
                     , linear
                     , mtl

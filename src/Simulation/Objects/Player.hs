@@ -54,7 +54,7 @@ playerObj = shrinkComponent . toComponent $ loopPre playerMaxMana $ proc ((playe
   -- Default facing direction is the direction of movement.
   let (vx :+ _) = simInput playerIn ^. moveVector
   movingRight <- arr (\vx -> (vx > 0) <$ guard (not $ nearZero vx) ) -< vx
-  playerFacingDirection <- holdJust 1 -< bool (-1) 1 <$> movingRight
+  playerFacingDirection <- holdJust 0 -< bool (-pi) 0 <$> movingRight
 
   -- TODO: continuous regen?
   manaRegenEvent <- repeatedly 1 () -< ()

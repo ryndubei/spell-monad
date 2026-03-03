@@ -146,7 +146,7 @@ simSF = arr (event mempty id) >>> proc SFInput{gameInput = u, termStdin = stdin,
         , playerY = 0
         , playerMana = 100
         , playerMaxMana = 100
-        , playerFacingDirection = 1
+        , playerFacingDirection = 0
         }
       Firebolts -> FireboltOutputs mempty
       SpellInterpreter -> SpellInterpreterOutput

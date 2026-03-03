@@ -204,7 +204,7 @@ fireboltAction :: V -> ActionTag () -> Action
 fireboltAction (faceX :+ faceY) atag = makeAtomicAction atag \oo -> do
   let PlayerOutput{..} = oo Player
       fireboltVel = if nearZero (faceX :+ faceY)
-        then fireboltSpeed * playerFacingDirection
+        then fireboltSpeed * phaseToV playerFacingDirection
         else fireboltSpeed * normalize (faceX :+ faceY)
       fs = FireboltState { fireboltPos = playerX :+ playerY, fireboltVel, fireboltRadius = 1, lifetime = 10 }
       fin = FireboltsInput { killFirebolts = noEvent, spawnFirebolts = Event [fs] }

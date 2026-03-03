@@ -20,7 +20,7 @@ data PlayerOutput = PlayerOutput
   , playerY :: !Double
   , playerMana :: !Double
   , playerMaxMana :: !Double
-  , playerFacingDirection :: !V
+  , playerFacingDirection :: !Phase
   }
 
 instance Semigroup PlayerInput where
