@@ -173,7 +173,7 @@ fireboltsSDF (FireboltOutputs fss) (x,y) =
 playerSDF :: PlayerOutput -> SDF
 playerSDF PlayerOutput{..} (x,y) = (Player,) $
   let playerDx :+ playerDy = (x :+ y) - (playerX :+ (playerY + 1.5))
-      playerDistance = max ((abs playerDx) - 0.5) ((abs playerDy) - 1)
+      playerDistance = max ((abs playerDx) - 0.25) ((abs playerDy) - 1)
    in playerDistance
 
 targetSelectorSDF :: PlayerOutput -> TargetSelectorOutput -> SDF
