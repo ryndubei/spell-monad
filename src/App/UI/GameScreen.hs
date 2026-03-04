@@ -348,9 +348,11 @@ drawSimState SimState{..} =
 
         dists :: V.Vector (V.Vector (ObjectIdentifier, Double))
         dists = flip V.map ys \y -> flip V.map xs \x ->
-          if pollGeometry (x :+ y) adHocGeometry
-            then (LevelGeometry, 0)
-            else sdf (x,y)
+          if snd (sdf (x,y)) <= 0
+            then sdf (x,y)
+            else if pollGeometry (x :+ y) adHocGeometry
+              then (LevelGeometry, 0)
+              else sdf (x,y)
 
         -- ObjectIdentifiers together with the string lengths to draw
         lineSliceLengths :: [V.Vector (Maybe ObjectIdentifier, Int)]
