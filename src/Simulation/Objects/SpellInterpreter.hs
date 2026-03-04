@@ -206,7 +206,7 @@ fireboltAction (faceX :+ faceY) atag = makeAtomicAction atag \oo -> do
       fireboltVel = if nearZero (faceX :+ faceY)
         then fireboltSpeed * phaseToV playerFacingDirection
         else fireboltSpeed * normalize (faceX :+ faceY)
-      fs = FireboltState { fireboltPos = playerX :+ playerY, fireboltVel, fireboltRadius = 1, lifetime = 10 }
+      fs = FireboltState { fireboltPos = playerX :+ (playerY + 1), fireboltVel, fireboltRadius = 1, lifetime = 10 }
       fin = FireboltsInput { killFirebolts = noEvent, spawnFirebolts = Event [fs] }
   mana <- get
   if mana >= fireboltCost
