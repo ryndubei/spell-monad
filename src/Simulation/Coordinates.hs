@@ -1,5 +1,6 @@
 {-# OPTIONS_GHC -Wno-orphans #-}
 {-# LANGUAGE PatternSynonyms #-}
+{-# LANGUAGE MultiWayIf #-}
 module Simulation.Coordinates
   ( V
   , Phase
@@ -7,6 +8,8 @@ module Simulation.Coordinates
   , vToPhase
   , LineSegment(..)
   , plankIntegral
+  , nearestPoint
+  , hang
   , module Data.Complex
   , module Linear.Metric
   , module Linear.Quaternion
@@ -65,8 +68,45 @@ nearestPoint LineSegment{segmentEdge, segmentLine} v = p
     s' = min 1 $ max 0 $ s
     p = lerp s' segmentEdge (segmentEdge + segmentLine)
 
--- | Clamps a 'V' to the nearest point on the line segment, then updates the
--- position by the velocity along the segment until it exits the segment.
+-- | Attaches V to the "overhead" point on the line segment:
+-- fixes the x-coordinate whenever possible, and takes on
+-- the y-coordinate of the point on the line segment with the
+-- closest x.
+--
+-- Drawing of the shape of the domain:
+-- 
+--             ______
+--           /
+--          /
+--         /
+-- _______/
+--
+-- >>> hang (LineSegment 0 (1 :+ 1)) (0.5 :+ 0)
+-- 0.5 :+ 0.5
+--
+-- >>> hang (LineSegment 0 (1 :+ 1)) (0.5 :+ 0.1)
+-- 0.5 :+ 0.5
+--
+-- >>> hang (LineSegment 0 (1 :+ 1)) ((-0.5) :+ (-1))
+-- (-0.5) :+ 0.0
+--
+-- >>> hang (LineSegment 0 ((-1) :+ 1)) ((-1.5) :+ (-1))
+-- (-1.5) :+ 1.0
+hang :: LineSegment -> V -> V
+hang LineSegment{segmentEdge, segmentLine = x1 :+ y1} v = v'
+  where
+    (x :+ y) = v - segmentEdge
+    y' = if | 0 <= x1 && x  <= 0  -> 0
+            | 0 <= x1 && x1 <= x  -> y1
+            | x1 < 0  && x  <= x1 -> y1
+            | x1 < 0  && 0  <= x  -> 0
+            | nearZero x1 -> y
+            | otherwise -> (y1/x1) * x
+    v' = segmentEdge + (x :+ y')
+
+-- | Clamps a 'V' to either the "overhead" or the nearest point on the line segment
+-- then integrates the position by the velocity along the segment until
+-- it exits the segment.
 -- The final value is the new position that lies outside the segment.
 --
 -- ('walking the plank')
@@ -81,5 +121,5 @@ plankIntegral ls@LineSegment{segmentEdge, segmentLine} v = mkTask' $ proc vt -> 
     let v' = lerp t segmentEdge (segmentEdge + segmentLine)
     returnA -< if 0 <= t && t <= 1 then Left v' else Right v'
     where
-      v0 = nearestPoint ls v
+      v0 = hang ls v
       t0 = min 1 $ max 0 $ prel v0 segmentEdge (segmentEdge + segmentLine)

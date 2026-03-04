@@ -3,6 +3,8 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# OPTIONS_GHC -Wno-orphans #-}
+{-# LANGUAGE PatternSynonyms #-}
+{-# LANGUAGE ViewPatterns #-}
 module Simulation (SimState(..), SimEvent(..), simSF, ObjectIdentifier(..), SFInput(..)) where
 
 import FRP.BearRiver
@@ -32,8 +34,10 @@ data ObjectIdentifier = Player | Firebolt | TargetSelector | LevelGeometry deriv
 
 instance NFData ObjectIdentifier
 
+type SDF = (Double, Double) -> (ObjectIdentifier, Double)
+
 data SimState = SimState
-  { sdf :: (Double, Double) -> (ObjectIdentifier, Double)
+  { sdf :: SDF
   , cameraX :: !Double
   , cameraY :: !Double
   , playerMana :: !Double
@@ -96,14 +100,14 @@ simSF = arr (event mempty id) >>> proc SFInput{gameInput = u, termStdin = stdin,
         O.Player -> playerIn
         SpellInterpreter -> spellInterpreterIn
         _ -> mempty
+
   objsOut <- objectsSF objsOutput0 objs0 -< objsInput
-  let !PlayerOutput{..} = unwrapOutputs objsOut O.Player
-      !SpellInterpreterOutput{..} = unwrapOutputs objsOut O.SpellInterpreter
-      targetSelectorOut = unwrapOutputs objsOut O.TargetSelector
-      playerPos = playerX :+ playerY
+  let !po@PlayerOutput{playerMana, playerMaxMana, playerX, playerY} = unwrapOutputs objsOut O.Player
+      !SpellInterpreterOutput{replResponse, stdout} = unwrapOutputs objsOut O.SpellInterpreter
+      !targetSelectorOut = unwrapOutputs objsOut O.TargetSelector
       simEvent1 = fmap (\r -> mempty { interpretResponse = r }) replResponse
       simEvent2 = fmap (\cs -> mempty { spellOutput = cs }) stdout
-      FireboltOutputs !fireboltStates = unwrapOutputs objsOut O.Firebolts
+      !fos = unwrapOutputs objsOut O.Firebolts
   
   -- Lag camera slightly behind the player position
   playerXLagged <- delay 0.5 0 -< playerX
@@ -111,21 +115,13 @@ simSF = arr (event mempty id) >>> proc SFInput{gameInput = u, termStdin = stdin,
 
   returnA -< (SimState
     {
-      -- square of diameter 2
       sdf = \(x,y) ->
-        let playerDx :+ playerDy = (x :+ y) - playerPos
-            playerDistance = max (abs playerDx - 1) (abs playerDy - 1)
-            fireboltDistances = map
-              (\FireboltState{fireboltPos, fireboltRadius} ->
-                let fireboltDpos = (x :+ y) - fireboltPos
-                 in dot fireboltDpos fireboltDpos - fireboltRadius
-              ) (snd <$> IntMap.toList fireboltStates)
-            targetSelectorDistance = if visible targetSelectorOut
-              then 
-                -- relative to player position
-                Just . subtract 0.5 . norm $ (x :+ y) - ((targetX targetSelectorOut :+ targetY targetSelectorOut) + (playerX :+ playerY))
-              else Nothing
-         in minimumBy (compare `on` snd) $ (Player, playerDistance) : maybe mempty (pure . (TargetSelector,)) targetSelectorDistance ++ map (Firebolt,) fireboltDistances
+        minimumBy (compare `on` snd)
+        . map ($ (x,y))
+        $ [ playerSDF po
+          , targetSelectorSDF po targetSelectorOut
+          , fireboltsSDF fos
+          ]
     , cameraX = playerXLagged
     , cameraY = playerYLagged
     , playerMana
@@ -157,3 +153,33 @@ simSF = arr (event mempty id) >>> proc SFInput{gameInput = u, termStdin = stdin,
         }
       O.TargetSelector -> TargetSelectorOutput{targetX = 0, targetY = 0, select = NoEvent, visible = False}
       StaticGeometry -> error "todo"
+
+pattern Infinity :: Double
+pattern Infinity <- (\x -> isInfinite x && x > 0 -> True) where
+  Infinity = 1 / 0
+
+fireboltSDF :: FireboltState -> SDF
+fireboltSDF FireboltState{..} (x,y) =
+  let fireboltDpos = (x :+ y) - fireboltPos
+   in (Firebolt, fireboltDpos `dot` fireboltDpos - fireboltRadius)
+
+fireboltsSDF :: FireboltOutputs -> SDF
+fireboltsSDF (FireboltOutputs fss) (x,y) =
+  minimumBy (compare `on` snd)
+  . map ($ (x,y)) . ((const (Firebolt, Infinity)) :)
+  . map fireboltSDF
+  $ (snd <$> IntMap.toList fss)
+
+playerSDF :: PlayerOutput -> SDF
+playerSDF PlayerOutput{..} (x,y) = (Player,) $
+  let playerDx :+ playerDy = (x :+ y) - (playerX :+ (playerY + 1.5))
+      playerDistance = max ((abs playerDx) - 0.5) ((abs playerDy) - 1)
+   in playerDistance
+
+targetSelectorSDF :: PlayerOutput -> TargetSelectorOutput -> SDF
+targetSelectorSDF PlayerOutput{..} TargetSelectorOutput{..} (x,y) =
+  (TargetSelector,)
+    if visible
+      -- relative to player position
+      then subtract 0.5 . norm $ (x :+ y) - (targetX :+ targetY) - (playerX :+ playerY)
+      else Infinity

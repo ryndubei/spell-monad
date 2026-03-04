@@ -21,9 +21,13 @@ import Data.Bool
 import Simulation.Util
 import Simulation.Component
 import Simulation.Objects.SpellInterpreter.Types
+import Simulation.Objects.Geometry
 
 gravityAcceleration :: Fractional a => a
 gravityAcceleration = 9.8
+
+playerCoyoteTime :: Fractional a => a
+playerCoyoteTime = 0.1
 
 playerBaseVelocity :: Fractional a => a
 playerBaseVelocity = 10
@@ -47,9 +51,7 @@ playerObj = shrinkComponent . toComponent $ loopPre playerMaxMana $ proc ((playe
       then (playerIn1{simInput = mempty}, mempty{targetSelectorInput = simInput playerIn1})
       else (playerIn1, mempty)
 
-  pos' <- (fix $ \k (pos1, vy) ->
-    switch (generaliseSF $ fallingMovement pos1 vy) (\_ pos2 -> switch (generaliseSF $ groundedMovement pos2) $ const k))
-    (0, 0) -< playerIn
+  pos' <- generaliseSF $ playerMovement 0 -< playerIn
 
   -- Default facing direction is the direction of movement.
   let (vx :+ _) = simInput playerIn ^. moveVector
@@ -78,26 +80,12 @@ playerObj = shrinkComponent . toComponent $ loopPre playerMaxMana $ proc ((playe
   where
     playerMaxMana = 100
 
-    groundedMovement :: V -> SF Identity PlayerInput (V, Event (V, Double))
-    groundedMovement (x0 :+ _) = proc (PlayerInput{simInput = simInput@SimInput{simJump}}) -> do
-        let (vx :+ _) = playerBaseVelocity * (simInput ^. moveVector)
-        dx <- integral -< vx
-        let pos' = (x0 + dx) :+ 0
-        -- Horizontal velocity is fully determined by the user input, so we only
-        -- return the vertical velocity.
-        returnA -< (pos', (pos', playerJumpVelocity) <$ simJump)
-
-    -- Accelerates downwards until both velocity and position would be negative,
-    -- then returns an event to switch back to grounded movement.
-    fallingMovement :: V -> Double -> SF Identity PlayerInput (V, Event V)
-    fallingMovement (x0 :+ y0) vy0 = proc (PlayerInput{simInput}) -> do
-      let (vx :+ _) = playerBaseVelocity * (simInput ^. moveVector)
-      dx <- integral -< vx
-      dvy <- integral -< gravityAcceleration
-      let vy = vy0 - dvy
-      dy <- integral -< vy
-      rec
-        pos <- iPre (x0 :+ y0) -< pos'
-        let pos' = (x0 + dx) :+ (y0 + dy)
-            grounded = pos' ^. _i <= 0 && (vy <= 0)
-      returnA -< (pos', gate (Event pos) grounded)
+    playerMovement :: V -> SF Identity PlayerInput V
+    playerMovement pos0 = proc PlayerInput{simInput} -> do
+      pos <- geomMovementWithJump
+        pos0
+        gravityAcceleration
+        playerCoyoteTime
+        playerJumpVelocity
+        adHocGeometry -< (playerBaseVelocity * simMoveX simInput, simJump simInput)
+      returnA -< pos
