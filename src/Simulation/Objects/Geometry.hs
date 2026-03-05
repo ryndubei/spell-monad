@@ -300,7 +300,7 @@ fallingMovement s0 v0 grav geom = do
     ds <- integral -< v0 + dv + vplus
     let s = s0 + ds
         grounded = pollGeometry s geom 
-    groundedEvt <- edge -< grounded -- we do not want the event at t=0 because the first 's' will likely be true
+    groundedEvt <- edge <<< initially False -< grounded
     s1 <- iPre s0 -< s
     returnA -< (s, groundedEvt `tag` s1)
   let ds = s2 - s1
@@ -318,9 +318,14 @@ geomMovement
   -> SF m Double V 
 geomMovement pos0 gravMag grace geom = runTask_ $
   pos0 & fix \k pos -> do
-    pos1 <- mkTask' . (arr (\d -> d :+ 0) >>>) . runTask $ fallingMovement pos 0 (-(0 :+ gravMag)) geom
-    pos2 <- groundedMovement pos1 grace geom
-    k pos2
+    if isJust (geometryLineSegment pos geom)
+      then do
+        pos1 <- groundedMovement pos grace geom
+        pos2 <- mkTask' . (arr (\d -> d :+ 0) >>>) . runTask $ fallingMovement pos1 0 (-(0 :+ gravMag)) geom
+        k pos2
+      else do
+        pos' <- mkTask' . (arr (\d -> d :+ 0) >>>) . runTask $ fallingMovement pos  0 (-(0 :+ gravMag)) geom
+        k pos'
 
 -- | Like 'geomMovement', but allows jumping in the opposite
 -- direction of gravity.
@@ -335,7 +340,8 @@ geomMovementWithJump
 geomMovementWithJump pos0 gravMag grace jumpMag geom =
   switch (proc (vsurf, jump) -> do
     pos <- geomMovement pos0 gravMag grace geom -< vsurf
-    returnA -< (pos, jump)
+    let hasGround = pollGeometry (pos - (0 :+ eps)) geom
+    returnA -< (pos, jump `gate` hasGround)
   ) \pos1 () -> switch
     (proc (vsurf, _) -> do
       epos <- runTask (fallingMovement pos1 (0 :+ jumpMag) (-(0 :+ gravMag)) geom) -< (vsurf :+ 0)
