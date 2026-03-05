@@ -126,11 +126,22 @@ printGeometry geo@Geometry{ blocks, rowLength, offsetX, offsetY } =
   where
     nLines = U.length blocks `div` rowLength
 
+type Cell = Complex Int
+
+vToCell :: V -> Cell
+vToCell (x :+ y) = ix :+ iy
+  where
+    ix = floor (x * 2)
+    iy = floor y
+
+cellToV :: Cell -> V
+cellToV (x :+ y) = ((int2Double x / 2) + 0.25) :+ (int2Double y + 0.5)
+
 -- | Important! defaults to True when out of bounds
 --
 -- (conceptually, the levels take place in a cave)
-testGeometry :: V -> Geometry -> Bool
-testGeometry (x :+ y) Geometry{rowLength, blocks, offsetX, offsetY} =
+testGeometryCell :: Cell -> Geometry -> Bool
+testGeometryCell (ix1 :+ iy1) Geometry{rowLength, blocks, offsetX, offsetY} =
   if xOob || yOob
     then True
     else case blocks U.!? i of
@@ -139,9 +150,12 @@ testGeometry (x :+ y) Geometry{rowLength, blocks, offsetX, offsetY} =
   where
     yOob = iy < 0
     xOob = ix < 0 || ix >= rowLength
-    ix = floor (x * 2) - offsetX
-    iy = floor y - offsetY
+    ix = ix1 - offsetX
+    iy = iy1 - offsetY
     i = iy*rowLength + ix
+
+testGeometry :: V -> Geometry -> Bool
+testGeometry = testGeometryCell . vToCell
 
 -- | Is the given point non-empty?
 pollGeometry :: V -> Geometry -> Bool
