@@ -10,6 +10,7 @@ module Simulation.Coordinates
   , plankIntegral
   , nearestPoint
   , hang
+  , lineSegmentIntersection
   , module Data.Complex
   , module Linear.Metric
   , module Linear.Quaternion
@@ -123,3 +124,59 @@ plankIntegral ls@LineSegment{segmentEdge, segmentLine} v = mkTask' $ proc vt -> 
     where
       v0 = hang ls v
       t0 = min 1 $ max 0 $ prel v0 segmentEdge (segmentEdge + segmentLine)
+
+lineSegmentIntersection :: LineSegment -> LineSegment -> Maybe (Double, Double, V)
+{-
+z_1 + r_1*ell_1 = z2 + r_2*ell_2
+
+If ell_2 /= 0 (safe assumption):
+
+r_2 = (z_1 + r_1*ell_1 - z_2) / ell_2
+
+looking for a real r_1 such that r_2 is real:
+
+Im((z_1 + r_1*ell_1 - z_2) / ell_2) = 0
+
+Im((z_1 + r_1*ell_1 - z_2)*conj_ell_2) = 0
+
+Im((z_1 - z_2)*conj_ell_2) + r_1*Im(ell_1*conj_ell_2) = 0
+
+If Im(ell_1*conj_ell_2) /= 0:
+
+r_1 = Im((z_1 - z_2)*conj_ell_2) / Im(ell_1*conj_ell_2)
+-}
+lineSegmentIntersection
+  ls1@LineSegment{segmentEdge = z1, segmentLine = l1}
+  ls2@LineSegment{segmentEdge = z2, segmentLine = l2}
+  | 0 <= r1 && r1 <= 1 && 0 <= r2 && r2 <= 1 = Just (r1, r2, (z1 + r1 *^ l1))
+
+  -- Corner cases of corner cases. Not strictly necessary.
+  | z1 == z2 = Just (0, 0, z1)
+  | colinear && magnitude l2 == 0 && magnitude l1 /= 0 = (\(a,b,c) -> (b,a,c)) <$> lineSegmentIntersection ls2 ls1
+  {-
+  r_2 = (z_1 + r_1*ell_1 - z_2) / ell_2
+
+  r_2 = s*r_1 + ((z_1 - z_2)/ell_2)
+
+  Im((z_1 - z_2)/ell_2)) = 0
+  -}
+
+  | colinear =
+      let
+          s = magnitude l1 / magnitude l2
+          z = (z1 - z2) / l2
+          -- equality check should be fine
+          haveSolutions = imagPart z == 0
+          diff = realPart z
+          -- r_2 = s*r_1 + diff
+          -- minimum valid r1
+          selectedR1 = max 0 (-diff / s)
+       in if haveSolutions && (abs diff <= 1) && not (isInfinite selectedR1) && not (isNaN selectedR1)
+        then Just (selectedR1, s*selectedR1 + diff, z1 + selectedR1 *^ l1)
+        else Nothing
+  | otherwise = Nothing
+  where
+    l2' = conjugate l2
+    colinear = isInfinite r1 || isNaN r1 -- division by zero
+    r1 = imagPart ((z2 - z1) * l2') / imagPart (l1 * l2')
+    (r2 :+ _) = (z1 + r1 *^ l1 - z2) / l2
