@@ -26,6 +26,7 @@ import GHC.Float
 import Simulation.Util
 import Control.Monad.Fix
 import Data.Either
+import Simulation.Objects.Geometry.Hitbox
 
 -- | Each point is a 0.5x1-unit 'block' of static terrain.
 data Geometry = Geometry { blocks :: !(U.Vector Bool), offsetX :: !Int, offsetY :: !Int, rowLength :: !Int }
@@ -134,8 +135,12 @@ vToCell (x :+ y) = ix :+ iy
     ix = floor (x * 2)
     iy = floor y
 
-cellToV :: Cell -> V
-cellToV (x :+ y) = ((int2Double x / 2) + 0.25) :+ (int2Double y + 0.5)
+-- | Given a Cell, return the hitbox encompassing the cell.
+cellToHitbox :: Cell -> (V, Hitbox)
+cellToHitbox (x :+ y) = (v, hb)
+  where
+    v = ((int2Double x / 2)) :+ (int2Double y)
+    hb = Hitbox (0.5 :+ 1)
 
 -- | Important! defaults to True when out of bounds
 --

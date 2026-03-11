@@ -73,6 +73,7 @@ library
                     , Simulation.Objects.SpellInterpreter.Types
                     , Simulation.Objects.TargetSelector
                     , Simulation.Objects.Geometry
+                    , Simulation.Objects.Geometry.Hitbox
                     , Spell.Eval
                     , Untrusted
     default-extensions:
@@ -98,6 +99,7 @@ library
                     , ieee
                     , lens
                     , linear
+                    , logict
                     , mtl
                     , monad-coroutine
                     , nspace
