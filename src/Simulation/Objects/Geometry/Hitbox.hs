@@ -7,7 +7,7 @@ module Simulation.Objects.Geometry.Hitbox
   , penetrationVector
   , hitboxCollision
   , rasterise
-  , rasteriseParallelogram
+  , hitboxSweep
   ) where
 
 import Simulation.Coordinates
@@ -19,7 +19,6 @@ import Control.Lens
 import qualified Data.List.NonEmpty as NE
 import Data.Function
 import Data.Foldable
-import Data.List (sortOn, nub)
 import Control.Monad.Logic ((>>-))
 import Control.Arrow ((&&&))
 import Data.Ord
@@ -116,30 +115,32 @@ hitboxCollision hb1@(LineSegment{segmentLine = sl1}, _) hb2@(LineSegment{segment
     v2' = intersectionFraction *^ sl2
 
 -- | Rasterise a line segment as a list of cells.
--- The cells will appear in order of distance from the origin.
+-- The cells will appear in sorted order.
 rasterise :: LineSegment -> [Complex Int]
 rasterise LineSegment{segmentEdge = z, segmentLine = l} =
-  possiblyReverse2 $ nubMergeSortedOn (\(x :+ y) -> (x,y))
+  nubMergeSortedOn (\(x :+ y) -> (x,y))
     do
       guard (not . nearZero $ realPart l)
       x <- [floor x0 + 1 .. floor x1]
       -- y such that z + r*l = x + i*y where r is real
       let y = (int2Double x * imagPart l + imagPart (z * conjugate l)) / realPart l
       pure (x :+ floor y)
-    $ (fmap floor leftEdge :) . possiblyReverse $ do
+    $ (fmap floor leftEdge :) $ do
       guard (not . nearZero $ imagPart l)
-      y <- [floor y0 + 1 .. floor y1]
-      let x = (int2Double y * realPart l - imagPart (z * conjugate l)) / imagPart l
-      pure (floor x :+ y)
+      -- if the line points down, then the second list will be in reversed order
+      if signum (imagPart l) == -signum (realPart l)
+        then do
+          Down y <- [Down (floor y0 + 1) .. Down (floor y1)]
+          let x = (int2Double y * realPart l - imagPart (z * conjugate l)) / imagPart l
+          pure (floor x :+ y)
+        else do
+          y <- [(floor y0 + 1) .. (floor y1)]
+          let x = (int2Double y * realPart l - imagPart (z * conjugate l)) / imagPart l
+          pure (floor x :+ y)
   where
     leftEdge = if realPart z < realPart (z + l) then z else (z + l)
     x0 :+ y0 = mzipWith min z (z + l) 
     x1 :+ y1 = mzipWith max z (z + l)
-    -- if the line points down, then the second list will be in reversed order
-    possiblyReverse = if signum (imagPart l) == -signum (realPart l) then reverse else id
-    -- if the line points backwards, then it should be reversed again to show up
-    -- in the order of distance from the line segment origin
-    possiblyReverse2 = if realPart l < 0 then reverse else id
 
 nubMergeSortedOn :: Ord b => (a -> b) -> [a] -> [a] -> [a]
 nubMergeSortedOn f xs ys = nubSortedOn f $ mergeSortedOn f xs ys
@@ -187,7 +188,7 @@ visualise cells0@(Set.fromList . map (\(x :+ y) -> (x,y)) -> cells) = unlines . 
       True -> pure '#'
       False -> pure '.'
   where
-    paddedTo l str = if length str < l then str ++ replicate (length str) ' ' else str
+    paddedTo l str = if length str < l then str ++ replicate (l - length str) ' ' else str
     yidxlen = maximum $ map (length . show) [miny .. maxy]
     minx = minimum $ map (^. _e) cells0
     maxx = maximum $ map (^. _e) cells0
@@ -201,8 +202,9 @@ rasteriseParallelogram :: LineSegment -> V -> [Complex Int]
 rasteriseParallelogram ls0@LineSegment{segmentEdge = z, segmentLine = l1} l2 =
   nubMergeSortedOn (\(x :+ y) -> (x,y)) ((fmap floor leftCorner) : cells1) cells2
   where
-    -- All other corners will be automatically found in one of the lists.
     leftCorner = minimumBy (compare `on` realPart) [z, z + l1, z + l2, z + l1 + l2]
+    -- TODO edge case: bottom corner not present in general,
+    -- ignore until this becomes a problem
 
     x0 :+ y0 = mzipWith min z $ mzipWith min (z + l1) $ mzipWith min (z + l2) (z + l1 + l2)
     x1 :+ y1 = mzipWith max z $ mzipWith max (z + l1) $ mzipWith max (z + l2) (z + l1 + l2)
