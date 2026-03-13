@@ -244,3 +244,17 @@ rasteriseParallelogram ls0@LineSegment{segmentEdge = z, segmentLine = l1} l2 =
           Just (xmin, xmax) -> do
             x <- [floor xmin .. floor xmax]
             pure (x :+ y)
+
+-- | The cells covered by the hitbox, given the path the edge of its diagonal.
+-- The list is sorted.
+hitboxSweep :: (LineSegment, Hitbox) -> [Complex Int]
+hitboxSweep (LineSegment{segmentEdge = z, segmentLine = l}, Hitbox{hitboxDiagonal = dx :+ dy}) =
+  nubMergeSortedOn tup
+    (nubMergeSortedOn tup (rasteriseParallelogram face1 l) (rasteriseParallelogram face2 l))
+    (nubMergeSortedOn tup (rasteriseParallelogram face3 l) (rasteriseParallelogram face4 l))
+  where
+    tup (x :+ y) = (x,y)
+    face1 = LineSegment{segmentEdge = z, segmentLine = dx :+ 0}
+    face2 = LineSegment{segmentEdge = z, segmentLine = 0 :+ dy}
+    face3 = LineSegment{segmentEdge = z + (dx :+ dy), segmentLine = 0 :+ (-dy)}
+    face4 = LineSegment{segmentEdge = z + (dx :+ dy), segmentLine = (-dx) :+ 0}
