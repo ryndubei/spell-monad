@@ -1,5 +1,6 @@
 {-# LANGUAGE NoArrows #-}
 {-# LANGUAGE BlockArguments #-}
+{-# LANGUAGE ViewPatterns #-}
 module Simulation.Objects.Geometry.Hitbox
   ( Hitbox(..)
   , areHitboxesColliding
@@ -20,6 +21,9 @@ import Data.Function
 import Data.Foldable
 import Data.List (sortOn, nub)
 import Control.Monad.Logic ((>>-))
+import Control.Arrow ((&&&))
+import Data.Ord
+import qualified Data.Set as Set
 
 --------------------------------------------------------------------------------
 -- Minkowski collision nonsense
@@ -118,16 +122,17 @@ rasterise LineSegment{segmentEdge = z, segmentLine = l} =
   possiblyReverse2 $ nubMergeSortedOn (\(x :+ y) -> (x,y))
     do
       guard (not . nearZero $ realPart l)
-      x <- nub [floor x0, ceiling x0] ++ [ceiling x0 + 1 .. floor x1]
+      x <- [floor x0 + 1 .. floor x1]
       -- y such that z + r*l = x + i*y where r is real
       let y = (int2Double x * imagPart l + imagPart (z * conjugate l)) / realPart l
       pure (x :+ floor y)
-    $ possiblyReverse $ do
+    $ (fmap floor leftEdge :) . possiblyReverse $ do
       guard (not . nearZero $ imagPart l)
-      y <- nub [floor y0, ceiling y0] ++ [ceiling y0 + 1 .. floor y1]
+      y <- [floor y0 + 1 .. floor y1]
       let x = (int2Double y * realPart l - imagPart (z * conjugate l)) / imagPart l
       pure (floor x :+ y)
   where
+    leftEdge = if realPart z < realPart (z + l) then z else (z + l)
     x0 :+ y0 = mzipWith min z (z + l) 
     x1 :+ y1 = mzipWith max z (z + l)
     -- if the line points down, then the second list will be in reversed order
@@ -148,43 +153,94 @@ mergeSortedOn f (x:xs) (y:ys) = case compare (f x) (f y) of
   GT -> y : mergeSortedOn f (x:xs) ys
 
 nubSortedOn :: Eq b => (a -> b) -> [a] -> [a]
-nubSortedOn f [] = []
-nubSortedOn f [x] = [x]
+nubSortedOn _ [] = []
+nubSortedOn _ [x] = [x]
 nubSortedOn f (x:y:ys) = if (f x) == (f y) then nubSortedOn f (y:ys) else x : nubSortedOn f (y:ys)
+
+yGivenX :: LineSegment -> Double -> Maybe Double
+yGivenX LineSegment{segmentEdge = z, segmentLine = l} x = do
+  let y = (x * imagPart l + imagPart (z * conjugate l)) / realPart l
+      r = realPart (((x :+ y) - z) / l)
+  guard $ isReal y
+  guard $ isReal r && r >= 0 && r <= 1
+  pure y
+
+xGivenY :: LineSegment -> Double -> Maybe Double
+xGivenY LineSegment{segmentEdge = z, segmentLine = l} y = do
+  let x = (y * realPart l - imagPart (z * conjugate l)) / imagPart l
+      r = realPart (((x :+ y) - z) / l)
+  guard $ isReal x
+  guard $ isReal r && r >= 0 && r <= 1
+  pure x
+
+-- | not infinite, not NaN
+isReal :: Double -> Bool
+isReal x = not (isInfinite x) && not (isNaN x)
+
+visualise :: [Complex Int] -> String
+visualise [] = mempty
+visualise cells0@(Set.fromList . map (\(x :+ y) -> (x,y)) -> cells) = unlines . (++ ["", replicate (yidxlen) ' ' ++ show minx]) $ do
+  Down y <- [Down maxy .. Down miny]
+  pure $ paddedTo yidxlen (show y) ++ ": " ++ do
+    x <- [minx .. maxx]
+    case Set.member (x,y) cells of
+      True -> pure '#'
+      False -> pure '.'
+  where
+    paddedTo l str = if length str < l then str ++ replicate (length str) ' ' else str
+    yidxlen = maximum $ map (length . show) [miny .. maxy]
+    minx = minimum $ map (^. _e) cells0
+    maxx = maximum $ map (^. _e) cells0
+    miny = minimum $ map (^. _i) cells0
+    maxy = maximum $ map (^. _i) cells0
 
 -- | Given one side of a parallelogram and the displacement to the parallel side,
 -- find all cells covered by the parallelogram.
 -- Cells will be in sorted order.
 rasteriseParallelogram :: LineSegment -> V -> [Complex Int]
-rasteriseParallelogram LineSegment{segmentEdge = z, segmentLine = l1} l2 =
-  nubMergeSortedOn (\(x :+ y) -> (x,y)) cells1 cells2
+rasteriseParallelogram ls0@LineSegment{segmentEdge = z, segmentLine = l1} l2 =
+  nubMergeSortedOn (\(x :+ y) -> (x,y)) ((fmap floor leftCorner) : cells1) cells2
   where
+    -- All other corners will be automatically found in one of the lists.
+    leftCorner = minimumBy (compare `on` realPart) [z, z + l1, z + l2, z + l1 + l2]
+
     x0 :+ y0 = mzipWith min z $ mzipWith min (z + l1) $ mzipWith min (z + l2) (z + l1 + l2)
     x1 :+ y1 = mzipWith max z $ mzipWith max (z + l1) $ mzipWith max (z + l2) (z + l1 + l2)
 
+    ls1 = ls0{segmentLine = l2}
+    ls2 = ls0{segmentEdge = z + l2}
+    ls3 = LineSegment{segmentEdge = z + l1, segmentLine = l2}
+
     cells1 = do
-      -- We can choose which of l1,l2 is used for division.
-      let (l1', l2') = if nearZero l1 then (l2, l1) else (l1, l2)
-      guard $ not $ nearZero l1'
-      x <- nub [floor x0, ceiling x0] ++ [ceiling x0 + 1 .. floor x1]
+      x <- [floor x0 + 1 .. floor x1]
       -- The allowed ys form a closed interval. These are the boundary points.
       let x' = int2Double x
-          y0Bnd = x' * imagPart l1' + imagPart (z * conjugate l1') / realPart l1'
-          y1Bnd = x' * imagPart l1' + imagPart (z * conjugate l1') + imagPart (conjugate l1' * l2') / realPart l1'
-      y <- [floor (min y0Bnd y1Bnd) .. floor (max y0Bnd y1Bnd)]
-      pure (x :+ y)
+          -- Extrema candidates
+          yb0 = yGivenX ls0 x'
+          yb1 = yGivenX ls1 x'
+          yb2 = yGivenX ls2 x'
+          yb3 = yGivenX ls3 x'
+          yInterval = fmap (minimum &&& maximum) . NE.nonEmpty $ catMaybes [yb0, yb1, yb2, yb3]
+      case yInterval of
+        Nothing -> mzero
+        Just (ymin, ymax) -> do
+          y <- [floor ymin .. floor ymax]
+          pure (x :+ y)
 
-    cells2 =
-      let (l1', l2') = if nearZero l1 then (l2, l1) else (l1, l2)
-          -- to ensure sort order
-          possiblyReverse = if signum (imagPart l1') == -signum (realPart l1') then reverse else id
-       in possiblyReverse $ do
-          y <- nub [floor y0, ceiling y0] ++ [ceiling y0 + 1 .. floor y1]
-          pure y
-          -- >>- is >>= but in breadth-first order for lists
-          >>- \y -> do
-            let y' = int2Double y
-                x0Bnd = y' * realPart l1' - imagPart (z * conjugate l1') / imagPart l1'
-                x1Bnd = y' * realPart l1' - imagPart (z * conjugate l1') - imagPart(conjugate l1' * l2') / imagPart l1'
-            x <- [floor (min x0Bnd x1Bnd) .. floor (max x0Bnd x1Bnd)]
-            pure $ (x :+ y)
+    cells2 = do
+        y <- [floor y0 + 1 .. floor y1]
+        pure y
+        -- >>- is >>= but in breadth-first order for lists
+        -- (ensures it's sorted by x and not by y)
+      >>- \y -> do
+        let y' = int2Double y
+            xb0 = xGivenY ls0 y'
+            xb1 = xGivenY ls1 y'
+            xb2 = xGivenY ls2 y'
+            xb3 = xGivenY ls3 y'
+            xInterval = fmap (minimum &&& maximum) . NE.nonEmpty $ catMaybes [xb0, xb1, xb2, xb3]
+        case xInterval of
+          Nothing -> mzero
+          Just (xmin, xmax) -> do
+            x <- [floor xmin .. floor xmax]
+            pure (x :+ y)
