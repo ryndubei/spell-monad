@@ -189,7 +189,7 @@ withReplThread k = do
 handleUntrustedException :: TQueue Char -> Untrusted SomeException -> IO ()
 handleUntrustedException q u = do
   let u' = fmap displayException u
-  printUntrustedString q u' >>= \case
+  printUntrustedString q (("*** Exception: " ++) <$> u') >>= \case
     Just e -> handleUntrustedException q e
     Nothing -> pure ()
 
