@@ -1,0 +1,4 @@
+[submodule "browser_wasi_shim"]
+	path = browser_wasi_shim
+	url = https://github.com/haskell-wasm/browser_wasi_shim.git
+	fetchRecurseSubmodules = false
