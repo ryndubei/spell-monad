@@ -59,6 +59,7 @@ library
                     , App.Thread.SF
                     , DependentSums
                     , Input
+                    , Run
                     , Simulation
                     , Simulation.Coordinates
                     , Simulation.Input
@@ -128,12 +129,6 @@ executable spell-monad-exe
     ghc-options: -threaded
     build-depends:    base
                     , spell-monad
-                    , async
-                    , bearriver
-                    , containers
-                    , mtl
-                    , stm
-                    , time
 
 executable terminal-demo
     import:           warnings
