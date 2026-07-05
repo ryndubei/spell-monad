@@ -4,3 +4,4 @@ dist-newstyle
 .vscode
 .ghc.environment.*
 cabal.project.local
+tags
