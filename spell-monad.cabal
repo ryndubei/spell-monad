@@ -93,7 +93,6 @@ library
                     , dependent-map
                     , deepseq
                     , dunai
-                    , effectful
                     , free
                     , hashable
                     , hint
@@ -103,7 +102,6 @@ library
                     , logict
                     , mtl
                     , monad-coroutine
-                    , nspace
                     , parallel
                     , profunctors
                     , transformers
@@ -115,7 +113,6 @@ library
                     , vector
                     , vty
                     , vty-crossplatform
-                    , QuickCheck
 
     hs-source-dirs:   src
     default-language: GHC2021
