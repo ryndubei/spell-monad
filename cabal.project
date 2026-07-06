@@ -1,6 +1,9 @@
 packages:
     spell-monad.cabal
 
+package *
+    shared: True
+ 
 write-ghc-environment-files: always
 
 source-repository-package
