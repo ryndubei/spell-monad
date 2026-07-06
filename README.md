@@ -12,13 +12,30 @@ movement, then `inputTarget >>= firebolt`, and then\
 
 ## Running
 
-Clone the repository, then run `cabal run spell-monad-exe` to run the game.
-Alternatively, run `cabal run spell-monad-exe -- +RTS -N` to use multiple CPU cores.
+Currently, the game can run both natively in a terminal and on WebAssembly
+(this may not be the case for long).
 
-The game uses around 2 gigabytes of RAM. This is not a memory leak: all of
-this is taken by [`hint`](https://hackage.haskell.org/package/hint-0.9.0.8),
-the library used for the Haskell interpreter. I don't know whether the memory
-usage can be decreased.
+### Native
+
+To run it natively, ensure you have `cabal` and `ghc` version 9.14
+installed, then run `cabal run spell-monad-exe`.
+
+### Web
+
+To run the game in the browser, run
+
+```
+nix develop .#wasm
+wasm32-wasi-cabal update
+make
+npm run preview -- --open
+```
+
+As a word of warning: the game is even jankier in the browser.
+
+The workaround for non-allocating loops also fails because the threaded RTS is
+currently unavailable on the WebAssembly backend.
+(meaning `print $ last (repeat 0)` in the REPL will cause the page to hang forever)
 
 ## Controls
 
