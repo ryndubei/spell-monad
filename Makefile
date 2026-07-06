@@ -2,7 +2,7 @@ PKG_NAME := spell-monad
 PKG_VERSION := 0.1.0.0
 PKG_FULL_NAME := $(PKG_NAME)-$(PKG_VERSION)
 
-HASKELL_SOURCES := $(shell find src -name '*.hs') spell-monad.cabal cabal.project cabal.project.local
+HASKELL_SOURCES := $(shell find src -name '*.hs') spell-monad.cabal cabal.project cabal.project.local cabal.project.freeze
 
 WEB_SOURCES := www/public/favicon.png $(wildcard www/*.css) $(wildcard www/*.mjs)
 WEB_GENERATED := www/generated/constants.mjs \
