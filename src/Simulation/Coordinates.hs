@@ -25,7 +25,8 @@ import Linear.Epsilon
 import Linear.Vector
 import Numeric.IEEE
 import Data.Word
-import FRP.BearRiver
+import FRP.BearRiver (Task, mkTask', integral)
+import Control.Arrow
 
 -- | Continuous 2D coordinate type
 type V = Complex Double
