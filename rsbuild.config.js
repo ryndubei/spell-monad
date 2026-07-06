@@ -5,6 +5,9 @@ import { pluginNodePolyfill } from '@rsbuild/plugin-node-polyfill';
 // Docs: https://rsbuild.rs/config/
 export default defineConfig({
     plugins: [pluginNodePolyfill()],
+    html: {
+        title: 'spell-monad'
+    },
     source: {
         entry: {
             index: './www/index.mjs'
