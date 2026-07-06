@@ -9,5 +9,20 @@ source-repository-package
     tag: 664f12605f4dab12c313c953cafd939ca45fabfe
     subdir: dunai-frp-bearriver
 
+source-repository-package
+    type: git
+    location: https://github.com/ryndubei/hint.git
+    tag: b67172c5339cf3bdfbcd8713d979c9cf4b31421a
+
+source-repository-package
+    type: git
+    location: https://github.com/ryndubei/vty-wasi.git
+    tag: 2b6ca38b89c34d943ea1c350b966f6ebb710ac92
+
+source-repository-package
+    type: git
+    location: https://github.com/ryndubei/vty-crossplatform.git
+    tag: 65d7e70dc88e5dc9ed73360a56f033c1c0cfbaf0
+
 allow-newer:
     containers
