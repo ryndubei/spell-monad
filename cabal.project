@@ -8,3 +8,6 @@ source-repository-package
     location: https://github.com/ryndubei/dunai.git
     tag: 664f12605f4dab12c313c953cafd939ca45fabfe
     subdir: dunai-frp-bearriver
+
+allow-newer:
+    containers
