@@ -81,7 +81,7 @@ if (!"WebAssembly" in window) {
     term_logger.log("WebAssembly present")
 }
 
-const [[rootfs_stream1, rootfs_stream2], rootfsStreamLength] = await fetch("/rootfs.tar.zst")
+const [[rootfs_stream1, rootfs_stream2], rootfsStreamLength] = await fetch("/spell-monad/rootfs.tar.zst")
     .then((r) => {
         console.log(r);
         return [r.body.tee(), r.headers.get('content-length')];

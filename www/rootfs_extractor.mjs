@@ -29,7 +29,7 @@ const rootfs_stream = new Promise(res => {
 
 const [{ instance }, rootfs_bytes] = await Promise.all([
     WebAssembly.instantiateStreaming(
-        fetch("/bsdtar.wasm"),
+        fetch("/spell-monad/bsdtar.wasm"),
         { wasi_snapshot_preview1: bsdtar_wasi.wasiImport }
     ),
     rootfs_stream.then(stream => new Response(stream).arrayBuffer())

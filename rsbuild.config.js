@@ -14,6 +14,7 @@ export default defineConfig({
         publicDir: {
             name: "www/public"
         },
+        base: "/spell-monad"
     },
     output: {
         minify: false,
