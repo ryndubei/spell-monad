@@ -152,17 +152,17 @@ theapp rth c = App {..}
       ]
 
     -- TODO: replace with dialogue-based exit
-    appHandleEvent (VtyEvent (EvKey (KChar 'q') _)) = do
+    appHandleEvent (VtyEvent (EvKey KEsc _)) = do
       L.assign gameExit (Just ExitMainMenu)
       halt
 
-    appHandleEvent (VtyEvent (EvKey (KChar 't') ms)) | MCtrl `elem` ms = do
+    appHandleEvent (VtyEvent (EvKey (KChar 'a') ms)) | MCtrl `elem` ms = do
       fc <- use terminalFocus
       Brick.zoom term $ forceVisibleInputLine .= True
       terminalFocus .= case fc of
         VisibleFocused -> Invisible
         _ -> VisibleFocused
-    appHandleEvent (VtyEvent (EvKey (KChar 'w') ms)) | MCtrl `elem` ms = do
+    appHandleEvent (VtyEvent (EvKey (KChar 's') ms)) | MCtrl `elem` ms = do
       fc <- use terminalFocus
       case fc of
         VisibleFocused -> terminalFocus .= VisibleUnfocused
