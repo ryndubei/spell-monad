@@ -1,5 +1,7 @@
 {-# LANGUAGE BlockArguments #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE ForeignFunctionInterface #-}
+{-# LANGUAGE CPP #-}
 
 module Run (run) where
 
@@ -39,6 +41,10 @@ deriving instance Show SimException
 
 instance Exception SimException where
   displayException (SimException e) = "Exception in simulation thread: " ++ displayException e
+
+#if defined(wasi_HOST_OS)
+foreign export javascript "run_game" run :: IO ()
+#endif
 
 run :: HasCallStack => IO ()
 run = withAppThread $ \th -> Control.Monad.forever do

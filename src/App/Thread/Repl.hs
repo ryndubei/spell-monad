@@ -2,6 +2,7 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE BlockArguments #-}
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE CPP #-}
 
 module App.Thread.Repl
   ( ReplThread
@@ -21,6 +22,7 @@ import Control.Concurrent.STM
 import Control.Exception
 import Spell (Spell)
 import Language.Haskell.Interpreter
+import Language.Haskell.Interpreter.Unsafe
 import Control.Concurrent.Async
 import Control.Monad.Trans.Maybe
 import Data.Void
@@ -111,7 +113,11 @@ withReplThread k = do
   -- taking the bound variables as arguments)
   withAsync
     do
+#if defined(wasi_HOST_OS)
+      e <- unsafeRunInterpreterWithArgs ["-package-env", "/tmp/ghc_env"] $ do
+#else
       e <- runInterpreter $ do
+#endif
         initialiseInterpreter
         liftIO . atomically $ writeTVar replInitialised True
 
