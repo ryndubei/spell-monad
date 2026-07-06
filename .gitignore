@@ -5,3 +5,10 @@ dist-newstyle
 .ghc.environment.*
 cabal.project.local
 tags
+dist
+www/public/rootfs.tar.zst
+www/public/bsdtar.wasm
+www/generated
+www/ghc
+node_modules
+_rootfs
