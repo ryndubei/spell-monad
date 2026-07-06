@@ -24,9 +24,9 @@ usage can be decreased.
 
 | Focus | Keys     | Description                           |
 | ----- | -------- | ------------------------------------- |
-|       | `CTRL-W` | Toggle REPL focus                     |
-|       | `CTRL-T` | Toggle REPL visiblity                 |
-|       | `q`      | Quit to main menu                     |
+|       | `CTRL-s` | Toggle REPL focus                     |
+|       | `CTRL-a` | Toggle REPL visiblity                 |
+|       | `ESC`    | Quit to main menu                     |
 | Game  | arrows   | Player/target movement                |
 | Game  | `Space`  | Jump                                  |
 | Game  | `Enter`  | Accept target position                |
