@@ -15,7 +15,10 @@
     }:
     let
       system = "x86_64-linux";
-      pkgs = nixpkgs.legacyPackages.${system};
+      pkgs = import nixpkgs {
+        inherit system;
+        overlays = [ self.overlay.${system} ];
+      };
     in
     {
       devShells.${system} = {
@@ -39,14 +42,24 @@
           '';
         };
       };
-      packages.${system}.pkgsCross.wasi32 = rec {
-        zstd-wasm = pkgs.callPackage ./zstd-wasm.nix {
-          ghc-wasm-meta = ghc-wasm-meta.packages.${system}.all_9_14;
+      overlay.${system} = k: p: {
+        pkgsCross = p.pkgsCross // {
+          wasi32 = p.pkgsCross.wasi32 // {
+            zstd-wasm =
+              assert p.pkgsCross.wasi32 ? zstd-wasm == false;
+              k.callPackage ./zstd-wasm.nix {
+                ghc-wasm-meta = ghc-wasm-meta.packages.${system}.all_9_14;
+              };
+            bsdtar-wasm =
+              assert p.pkgsCross.wasi32 ? bsdtar-wasm == false;
+              k.callPackage ./bsdtar-wasm.nix {
+                ghc-wasm-meta = ghc-wasm-meta.packages.${system}.all_9_14;
+              };
+          };
         };
-        bsdtar-wasm = pkgs.callPackage ./bsdtar-wasm.nix {
-          inherit zstd-wasm;
-          ghc-wasm-meta = ghc-wasm-meta.packages.${system}.all_9_14;
-        };
+      };
+      packages.${system}.pkgsCross.wasi32 = {
+        inherit (pkgs.pkgsCross.wasi32) zstd-wasm bsdtar-wasm;
       };
     };
   nixConfig.extra-substituters = [ "https://haskell-language-server.cachix.org" ];

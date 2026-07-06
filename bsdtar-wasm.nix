@@ -3,9 +3,11 @@
   stdenvNoCC,
   cmake,
   ghc-wasm-meta,
-  zstd-wasm,
 }:
 
+let
+  zstd-wasm = pkgs.pkgsCross.wasi32.zstd-wasm;
+in
 stdenvNoCC.mkDerivation {
   name = "bsdtar-wasm";
   src = pkgs.fetchFromGitHub {
