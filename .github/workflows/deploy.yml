@@ -25,8 +25,13 @@ jobs:
         uses: actions/configure-pages@v5
       - name: Install Nix
         uses: cachix/install-nix-action@v31
+      # TODO: put this in flake.nix
+      - name: Get terminfo db 
+        run: ln -s $(nix build --no-link --print-out-paths nixpkgs#ncurses.out)/share/terminfo terminfo_db
       - name: Enter devshell and run make
         run: nix develop .#wasm --command bash -c 'wasm32-wasi-cabal update && make'
+        env:
+          TERMINFO_DIRS: ./terminfo_db
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
