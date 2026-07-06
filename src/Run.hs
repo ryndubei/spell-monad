@@ -25,6 +25,7 @@ import Data.Function
 import Spell.Eval
 import qualified Data.Sequence as Seq
 import Data.Time
+import Control.Concurrent
 
 -- TODO: exception hierarchy
 
@@ -91,6 +92,8 @@ runGame th = evalContT do
         sendBrickEvent bth $ Right es
         pure responses
     atomically responses
+    -- Limit fps to about 30
+    threadDelay 33_000 -- 33ms
   lift $ link sfToBrickTh
 
   brickToSfTh <- ContT . withAsync . forever $ atomically do
