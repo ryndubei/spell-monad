@@ -96,7 +96,7 @@ library
                     , free
                     , hashable
                     , hint
-                    , ieee
+                    , ieee754
                     , lens
                     , linear
                     , logict
