@@ -3,6 +3,7 @@ packages:
 
 package *
     shared: True
+    optimization: 2
  
 write-ghc-environment-files: always
 

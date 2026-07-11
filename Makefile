@@ -21,7 +21,7 @@ CLANG := wasm32-wasi-clang
 
 GHC_LIBDIR := $(shell realpath $(shell $(GHC) --print-libdir))
 C_LIBDIR := $(shell dirname $(shell which $(CLANG)))/../share/wasi-sysroot/lib/wasm32-wasi
-export MAIN_DYNLIB_DIR := $(shell realpath .)/dist-newstyle/build/wasm32-wasi/$(shell $(CABAL) path --compiler-info | awk '/^compiler-id:/ {print $$2}')/$(PKG_FULL_NAME)/build
+export MAIN_DYNLIB_DIR := $(shell realpath .)/dist-newstyle/build/wasm32-wasi/$(shell $(CABAL) path --compiler-info | awk '/^compiler-id:/ {print $$2}')/$(PKG_FULL_NAME)/opt/build
 
 GHC_LIBDIR_PREFIX := $(shell dirname $(GHC_LIBDIR))
 export HS_SEARCHDIR := $(shell find $(GHC_LIBDIR) -name '*.so' -print0 -quit | xargs -0 -n1 dirname | sed 's|^$(GHC_LIBDIR_PREFIX)/|/|')
