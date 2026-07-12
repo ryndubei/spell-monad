@@ -10,6 +10,7 @@ import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { openpty, Flags } from 'xterm-pty'
 import { HS_SEARCH_DIR, MAIN_SO_PATH, MAIN_SO_BASE_NAME, CABAL_DYN_LIB_DIRS } from './generated/constants.mjs';
+import { RootfsExtractor } from './RootfsExtractor.mjs'
 
 import './xterm.css';
 import './index.css';
@@ -89,9 +90,7 @@ const [[rootfs_stream1, rootfs_stream2], rootfsStreamLength] = await fetch("/spe
 
 term_logger.log("Fetching and extracting rootfs...")
 
-const rootfs_extractor_worker = new Worker(new URL('./rootfs_extractor.mjs', import.meta.url));
-
-rootfs_extractor_worker.postMessage(rootfs_stream2, [rootfs_stream2])
+const rootfs_extractor = new RootfsExtractor(rootfs_stream2)
 
 var progress = 0
 
@@ -103,38 +102,7 @@ for await (const chunk of rootfs_stream1) {
 slave.write('\n')
 term_logger.log("rootfs.tar.zst downloaded")
 
-// mutably convert the received rootfs back to a PreopenDirectory
-// needed because worker thread messages lose the class methods
-function objectToFs(rfs) {
-    function go(m) {
-        for (const k of m.keys()) {
-            const ino = m.get(k)
-            // is a directory
-            if ('contents' in ino) {
-                m.set(k, new Directory(go(ino.contents)))
-                // is a file
-            } else if ('data' in ino) {
-                m.set(k, new File(ino.data))
-            } else {
-                term_logger.crash("objectToFs: unexpected structure")
-            }
-        }
-
-        return m
-    }
-
-    return new PreopenDirectory("/", go(rfs.dir.contents))
-}
-
-const rootfs = await new Promise(res => {
-    rootfs_extractor_worker.onmessage = msg => {
-        if (msg.data.wasi_result === 0) {
-            res(objectToFs(msg.data.rootfs))
-        } else {
-            term_logger.crash(`Failed to extract rootfs: ${msg.data.wasi_result}`)
-        }
-    }
-})
+const rootfs = await rootfs_extractor.rootfs.catch( r => term_logger.crash(r) )
 
 {
 const ERRNO_NODEV = 43
