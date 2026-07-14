@@ -10,7 +10,7 @@ import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { openpty, Flags } from 'xterm-pty'
 import { HS_SEARCH_DIR, MAIN_SO_PATH, MAIN_SO_BASE_NAME, CABAL_DYN_LIB_DIRS } from './generated/constants.mjs';
-import { RootfsExtractor } from './RootfsExtractor.mjs'
+import { RootfsExtractor } from './RootfsExtractor.ts'
 
 import './xterm.css';
 import './index.css';
@@ -192,6 +192,6 @@ try {
 
     await dyld.exportFuncs.run_game();
 } catch (err) {
-    term_logger.error(`${err}`)
+    term_logger.error(err)
 }
 
