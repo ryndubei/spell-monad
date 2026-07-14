@@ -70,7 +70,7 @@ cp "$scratch/tmp/ghc_env" _rootfs/tmp/ghc_env
 
 # Record library directories in constants.mjs
 MAIN_SO_PATH="$(find "$MAIN_DYNLIB_DIR" -type f -name '*.so' -print -quit)"
-echo "export const HS_SEARCH_DIR      = \"/tmp/hslib/$HS_SEARCHDIR\";" > "$scratch/constants.mjs"
+echo "export const HS_SEARCH_DIR      = \"/tmp/hslib$HS_SEARCHDIR\";" > "$scratch/constants.mjs"
 echo "export const MAIN_SO_PATH       = \"$MAIN_SO_PATH\";" >> "$scratch/constants.mjs"
 echo "export const MAIN_SO_BASE_NAME  = \"$(basename "$MAIN_SO_PATH")\";" >> "$scratch/constants.mjs"
 echo "export const CABAL_DYN_LIB_DIRS = [$(printf '"%s", ' "${DYN_LIB_DIRS[@]}")];" >> "$scratch/constants.mjs"
