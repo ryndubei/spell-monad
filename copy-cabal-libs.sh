@@ -6,6 +6,9 @@ set -euo pipefail
 scratch=$(mktemp -d)
 
 
+MAIN_DYNLIB_DIR="$(realpath .)/dist-newstyle/build/wasm32-wasi/$("$CABAL" path --compiler-info | awk '/^compiler-id:/ {print $2}')/$PKG_FULL_NAME/opt/build"
+
+
 PKG_DBS="$(echo "$GHC_ENV" | awk '/^package-db/ {print $2}')"
 PKG_IDS="$(echo "$GHC_ENV" | awk '/^package-id/ {print $2}')"
 

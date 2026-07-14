@@ -1,6 +1,6 @@
 PKG_NAME := spell-monad
 PKG_VERSION := 0.1.0.0
-PKG_FULL_NAME := $(PKG_NAME)-$(PKG_VERSION)
+export PKG_FULL_NAME := $(PKG_NAME)-$(PKG_VERSION)
 
 HASKELL_SOURCES := $(shell find src -name '*.hs') spell-monad.cabal cabal.project cabal.project.local cabal.project.freeze
 
@@ -16,12 +16,11 @@ ROOTFS_KEY_PATHS := _rootfs/tmp/ghc_env _rootfs/tmp/hslib/lib _rootfs/tmp/clib _
 
 GHC := wasm32-wasi-ghc
 export GHC_PKG := wasm32-wasi-ghc-pkg
-CABAL := wasm32-wasi-cabal
+export CABAL := wasm32-wasi-cabal
 CLANG := wasm32-wasi-clang
 
 GHC_LIBDIR := $(shell realpath $(shell $(GHC) --print-libdir))
 C_LIBDIR := $(shell dirname $(shell which $(CLANG)))/../share/wasi-sysroot/lib/wasm32-wasi
-export MAIN_DYNLIB_DIR := $(shell realpath .)/dist-newstyle/build/wasm32-wasi/$(shell $(CABAL) path --compiler-info | awk '/^compiler-id:/ {print $$2}')/$(PKG_FULL_NAME)/opt/build
 
 GHC_LIBDIR_PREFIX := $(shell dirname $(GHC_LIBDIR))
 export HS_SEARCHDIR := $(shell find $(GHC_LIBDIR) -name '*.so' -print0 -quit | xargs -0 -n1 dirname | sed 's|^$(GHC_LIBDIR_PREFIX)/|/|')
