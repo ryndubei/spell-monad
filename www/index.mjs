@@ -15,12 +15,19 @@ import { RootfsExtractor } from './RootfsExtractor.ts'
 import './xterm.css';
 import './index.css';
 
+const term = new Terminal()
+const fitAddon = new FitAddon()
+
+if (document.readyState === "loading") {
+    await new Promise((res) =>
+        document.addEventListener("DOMContentLoaded", res, { once: true })
+    );
+}
+
 document.querySelector('#root').innerHTML = `
 <div id="terminal"></div>
 `;
 
-const term = new Terminal()
-const fitAddon = new FitAddon()
 term.open(document.getElementById('terminal'));
 
 const { master, slave } = openpty();
@@ -164,12 +171,6 @@ if ((r = r.fd_obj.path_link("pty", new class extends File {
 console.log(rootfs)
 
 term_logger.log("rootfs extracted")
-
-if (document.readyState === "loading") {
-    await new Promise((res) =>
-        document.addEventListener("DOMContentLoaded", res, { once: true })
-    );
-}
 
 term_logger.log("Initialising DyLDBrowserHost...")
 try {
