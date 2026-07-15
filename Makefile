@@ -125,6 +125,7 @@ www/ghc/dyld.mjs www/ghc/post-link.mjs www/ghc/prelude.mjs:
 cabal.project.local:
 	touch cabal.project.local
 
+# deliberately not removing dist-newstyle since it's already managed by cabal
 .PHONY: clean
 clean:
 	-rm -rf _rootfs
