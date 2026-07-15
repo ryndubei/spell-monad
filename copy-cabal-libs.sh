@@ -6,9 +6,6 @@ set -euo pipefail
 scratch=$(mktemp -d)
 
 
-MAIN_DYNLIB_DIR="$(realpath .)/dist-newstyle/build/wasm32-wasi/$("$CABAL" path --compiler-info | awk '/^compiler-id:/ {print $2}')/$PKG_FULL_NAME/opt/build"
-
-
 PKG_DBS="$(echo "$GHC_ENV" | awk '/^package-db/ {print $2}')"
 PKG_IDS="$(echo "$GHC_ENV" | awk '/^package-id/ {print $2}')"
 
@@ -69,7 +66,6 @@ cp "$scratch/tmp/ghc_env" _rootfs/tmp/ghc_env
 
 
 # Record library directories in constants.mjs
-MAIN_SO_PATH="$(find "$MAIN_DYNLIB_DIR" -type f -name '*.so' -print -quit)"
 echo "export const HS_SEARCH_DIR      = \"/tmp/hslib$HS_SEARCHDIR\";" > "$scratch/constants.mjs"
 echo "export const MAIN_SO_PATH       = \"$MAIN_SO_PATH\";" >> "$scratch/constants.mjs"
 echo "export const MAIN_SO_BASE_NAME  = \"$(basename "$MAIN_SO_PATH")\";" >> "$scratch/constants.mjs"

@@ -25,6 +25,10 @@ C_LIBDIR := $(shell dirname $(shell which $(CLANG)))/../share/wasi-sysroot/lib/w
 GHC_LIBDIR_PREFIX := $(shell dirname $(GHC_LIBDIR))
 export HS_SEARCHDIR := $(shell find $(GHC_LIBDIR) -name '*.so' -print0 -quit | xargs -0 -n1 dirname | sed 's|^$(GHC_LIBDIR_PREFIX)/|/|')
 
+GHC_VERSION := $(shell $(CABAL) path -z --compiler-info | awk '/^compiler-id:/ {print $$2}' | sed 's|^ghc-||')
+
+export MAIN_SO_PATH := $(realpath .)/dist-newstyle/build/wasm32-wasi/ghc-$(GHC_VERSION)/$(PKG_FULL_NAME)/opt/build/libHS$(PKG_FULL_NAME)-inplace-ghc$(GHC_VERSION).so
+
 
 dist: node_modules $(WEB_SOURCES) $(WEB_GENERATED)
 	npm run build
@@ -34,12 +38,12 @@ node_modules:
 	npm install
 	touch -m node_modules
 
-dist-newstyle/build/wasm32-wasi: $(HASKELL_SOURCES)
+$(MAIN_SO_PATH): $(HASKELL_SOURCES)
 	$(CABAL) build $(PKG_NAME)
 	touch -m dist-newstyle/build/wasm32-wasi
 
 # ghc_env is used as a marker for having copied all the cabal libraries to _rootfs as well
-_rootfs/tmp/ghc_env www/generated/constants.mjs: dist-newstyle/build/wasm32-wasi
+_rootfs/tmp/ghc_env www/generated/constants.mjs: $(MAIN_SO_PATH)
 	GHC_ENV="$$($(CABAL) exec -- sh -c 'cat "$$GHC_ENVIRONMENT"')" ./copy-cabal-libs.sh
 
 # Create minimal terminfo db in /usr/share/terminfo
