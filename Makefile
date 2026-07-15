@@ -34,12 +34,12 @@ node_modules:
 	npm install
 	touch -m node_modules
 
-dist-newstyle: $(HASKELL_SOURCES)
+dist-newstyle/build/wasm32-wasi: $(HASKELL_SOURCES)
 	$(CABAL) build $(PKG_NAME)
-	touch -m dist-newstyle
+	touch -m dist-newstyle/build/wasm32-wasi
 
 # ghc_env is used as a marker for having copied all the cabal libraries to _rootfs as well
-_rootfs/tmp/ghc_env www/generated/constants.mjs: dist-newstyle
+_rootfs/tmp/ghc_env www/generated/constants.mjs: dist-newstyle/build/wasm32-wasi
 	GHC_ENV="$$($(CABAL) exec -- sh -c 'cat "$$GHC_ENVIRONMENT"')" ./copy-cabal-libs.sh
 
 # Create minimal terminfo db in /usr/share/terminfo
