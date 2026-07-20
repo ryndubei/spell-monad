@@ -10,6 +10,9 @@ import { HS_SEARCH_DIR, MAIN_SO_PATH, MAIN_SO_BASE_NAME, CABAL_DYN_LIB_DIRS } fr
 import { RootfsExtractor } from './RootfsExtractor.ts'
 import { Game } from './Game.ts'
 
+const game = new Game()
+const game_initialised = game.init()
+
 if (!("WebAssembly" in window)) {
     throw new Error("No WebAssembly")
 } else {
@@ -45,4 +48,5 @@ const rootfs = await rootfs_extractor.rootfs
 console.log(rootfs)
 console.log("rootfs extracted")
 
-await new Game(rootfs).run()
+await game_initialised
+await game.run(rootfs)
