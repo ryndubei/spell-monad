@@ -16,8 +16,12 @@
     "pixi.js": "^8.19.0"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@rsbuild/core": "^2.0.11",
     "@rsbuild/plugin-node-polyfill": "^1.4.6",
-    "typescript": "^6.0.3"
+    "eslint": "^10.8.1",
+    "globals": "^17.11.0",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.67.0"
   }
 }
