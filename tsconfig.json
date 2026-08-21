@@ -16,9 +16,9 @@
     "resolveJsonModule": true,
     "allowImportingTsExtensions": true,
 
-    /* type checking */
-    "noUnusedLocals": true,
-    "noUnusedParameters": true
+    /* already covered by eslint */
+    "noUnusedLocals": false,
+    "noUnusedParameters": false
   },
   "include": ["www"]
 }
