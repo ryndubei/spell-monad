@@ -43,8 +43,12 @@ $(MAIN_SO_PATH): $(HASKELL_SOURCES)
 	touch -m dist-newstyle/build/wasm32-wasi
 
 # ghc_env is used as a marker for having copied all the cabal libraries to _rootfs as well
-_rootfs/tmp/ghc_env www/generated/constants.mjs: $(MAIN_SO_PATH)
+_rootfs/tmp/ghc_env: $(MAIN_SO_PATH)
 	GHC_ENV="$$($(CABAL) exec -- sh -c 'cat "$$GHC_ENVIRONMENT"')" ./copy-cabal-libs.sh
+
+# assumption: constants.mjs already exists (created by copy-cabal-libs.sh)
+www/generated/constants.mjs: www/public/rootfs.tar.zst
+	echo "export const ARCHIVE_CHECKSUM = \"$(shell sha256sum www/public/rootfs.tar.zst | awk '{print $$1}')\"" >> $@
 
 # Create minimal terminfo db in /usr/share/terminfo
 _rootfs/usr/share/terminfo/x/xterm: scratch := $(shell mktemp -d)
