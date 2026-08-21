@@ -2,9 +2,14 @@ import { PreopenDirectory } from "@bjorn3/browser_wasi_shim";
 import { HS_SEARCH_DIR, CABAL_DYN_LIB_DIRS, MAIN_SO_PATH, MAIN_SO_BASE_NAME } from "./generated/constants.mjs";
 import { main, DyLDBrowserHost } from './ghc/dyld.mjs'
 import { Application } from 'pixi.js'
-import { GameViewport } from './GameViewport.ts'
+import type { Screen } from './Screen.ts'
+import { EmptyScreen } from './Screen.ts'
 
 declare global {
+    /**
+     * The Haskell part of the game controls the user interface by calling methods on
+     * __GAME_VIEWPORT over Javascript FFI.
+     */
     var __GAME_VIEWPORT: GameViewport
 }
 
@@ -13,7 +18,8 @@ export class Game {
     viewport = new GameViewport(this.#app)
 
     async init() {
-        await this.#app.init({ background: '#1099bb', resizeTo: window })
+        await this.#app.init(
+            { resizeTo: window })
 
         // Needs to be in globalThis to be exposed to the game.
         // Alternatively, could sneak in an instance of InodeMem with extra methods
@@ -49,5 +55,25 @@ export class Game {
 
         // "run_game" must be exported by the main .so
         await dyld.exportFuncs.run_game();
+    }
+}
+
+export class GameViewport {
+    constructor(app: Application) {
+        this.#app = app
+    }
+
+    #app: Application
+
+    #screen: Screen = new EmptyScreen
+
+    get screen(): Screen {
+        return this.#screen
+    }
+
+    set screen(s: Screen) {
+        this.#screen.cleanup(this.#app)
+        this.#screen = s
+        s.setup(this.#app)
     }
 }
