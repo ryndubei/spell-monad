@@ -1,5 +1,5 @@
 import type { PreopenDirectory } from '@bjorn3/browser_wasi_shim'
-import { Application, BitmapFont, BitmapText, Color, Graphics, HTMLText, Text, Ticker } from 'pixi.js'
+import { Application, BitmapText, Color, Graphics, Text, Ticker } from 'pixi.js'
 import { RootfsExtractor } from './RootfsExtractor'
 import { Button, Dialog, ProgressBar } from '@pixi/ui'
 import { ARCHIVE_CHECKSUM } from './generated/constants.mjs'
