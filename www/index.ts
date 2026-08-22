@@ -57,6 +57,8 @@ if (rootfs_blob != null) {
     rootfs = await (game.viewport.screen as DownloadScreen).rootfs
 }
 
+blobs_db.close()
+
 console.log("rootfs extracted")
 console.log(rootfs)
 
