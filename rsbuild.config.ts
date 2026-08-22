@@ -10,7 +10,7 @@ export default defineConfig({
     },
     source: {
         entry: {
-            index: './www/index.mjs'
+            index: './www/index.ts'
         },
     },
     server: {

@@ -2,6 +2,8 @@ import type { PreopenDirectory } from '@bjorn3/browser_wasi_shim'
 import { Application, BitmapFont, BitmapText, Color, Graphics, HTMLText, Text, Ticker } from 'pixi.js'
 import { RootfsExtractor } from './RootfsExtractor'
 import { Button, Dialog, ProgressBar } from '@pixi/ui'
+import { ARCHIVE_CHECKSUM } from './generated/constants.mjs'
+import type { BlobsDB } from './BlobsDB'
 
 export interface Screen {
     setup(app: Application): void
@@ -54,15 +56,48 @@ export class DownloadScreen implements Screen {
                 } else {
                     throw new Error("rootfs.tar.zst: empty body")
                 }
-            }) as any;
+            }) as any
 
         this.#rootfsDownloadSize = rootfsStreamLength
 
         console.log(`Fetching and extracting rootfs (${(rootfsStreamLength / (1024 * 1024)).toFixed(1)}MiB)...`)
 
+        const [rootfs_stream3, rootfs_stream4] = rootfs_stream1.tee()
+
         const rootfs_extractor = new RootfsExtractor(rootfs_stream2)
 
-        for await (const chunk of rootfs_stream1) {
+        // Store rootfs download in local storage if possible
+        if (this.#db.isOpen()) {
+            try {
+                // request persistence via navigator.storage.persist
+                console.log("Asking for persistent storage...")
+                navigator.storage.persist().then(persistence => {
+                    if (persistence) {
+                        console.log("Got persistent storage")
+                    } else {
+                        console.warn("Did not get persistent storage")
+                    }
+                });
+
+                (async () => {
+                    const chunks = []
+                    for await (const chunk of rootfs_stream3) {
+                        chunks.push(chunk)
+                    }
+                    await this.#db.write({ checksum: ARCHIVE_CHECKSUM, archive: new Blob(chunks) })
+                })().catch((e) => console.error(e))
+
+            } catch (e) {
+                // unsure whether navigator.storage.persist itself throws or whether
+                // the thrown error is wrapped in the promise
+                // the MDN documentation suggests the former, so I assume that
+                console.error(e)
+                console.warn("Failed to obtain local storage shelf, will not store downloaded rootfs")
+            }
+        } else {
+            console.warn("DB is closed, so cannot store downloaded rootfs archive")
+        }
+        for await (const chunk of rootfs_stream4) {
             this.#rootfsDownloadProgress += chunk.length
         }
 
@@ -71,7 +106,11 @@ export class DownloadScreen implements Screen {
         return await rootfs_extractor.rootfs
     }
 
-    constructor() {
+    #db
+
+    constructor(db: BlobsDB) {
+        this.#db = db
+
         const WIDTH = 400
         const HEIGHT = 250
         const RADIUS = 20
