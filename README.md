@@ -37,6 +37,14 @@ The workaround for non-allocating loops also fails because the threaded RTS is
 currently unavailable on the WebAssembly backend.
 (meaning `print $ last (repeat 0)` in the REPL will cause the page to hang forever)
 
+#### Warning!
+
+The Makefile copies relevant libraries from the Cabal store into the resulting
+rootfs.tar.zst. It will maintain the exact same directory structure those
+libraries were found in. This may have privacy implications (for example, this
+will expose your username). If you plan to host an instance of the game
+publicly on the web, you should build it in a sandboxed environment.
+
 ## Controls
 
 | Focus | Keys     | Description                           |
