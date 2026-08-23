@@ -2,8 +2,6 @@ import type { PreopenDirectory } from '@bjorn3/browser_wasi_shim'
 import { Application, BitmapText, Color, Graphics, Text, Ticker } from 'pixi.js'
 import { RootfsExtractor } from './RootfsExtractor'
 import { Button, Dialog, ProgressBar } from '@pixi/ui'
-import { ARCHIVE_CHECKSUM } from './generated/constants.mjs'
-import type { BlobsDB } from './BlobsDB'
 
 export interface Screen {
     setup(app: Application): void
@@ -46,11 +44,28 @@ export class DownloadScreen implements Screen {
     #ticker = new Ticker()
 
     async #extractRootfs(rootfsDownloadConfirmed: Promise<unknown>): Promise<PreopenDirectory> {
+
+        const ROOTFS_URL = "/spell-monad/rootfs.tar.zst"
+
         await rootfsDownloadConfirmed
 
-        const [[rootfs_stream1, rootfs_stream2], rootfsStreamLength] = await fetch("/spell-monad/rootfs.tar.zst")
+        const [[rootfs_stream1, rootfs_stream2], rootfsStreamLength] = await fetch(ROOTFS_URL)
             .then((r) => {
                 if (r.body != null) {
+
+                    // request persistence so that the cache stays around longer
+                    console.log("Asking for persistent storage...")
+                    navigator.storage.persist().then(persistence => {
+                        if (persistence) {
+                            console.log("Got persistent storage")
+                        } else {
+                            console.warn("Did not get persistent storage")
+                        }
+                    })
+
+                    // no await so that we can begin extracting asynchronously
+                    this.#cache.put(ROOTFS_URL, r.clone())
+
                     console.log(r);
                     return [r.body.tee(), r.headers.get('content-length')];
                 } else {
@@ -62,54 +77,25 @@ export class DownloadScreen implements Screen {
 
         console.log(`Fetching and extracting rootfs (${(rootfsStreamLength / (1024 * 1024)).toFixed(1)}MiB)...`)
 
-        const [rootfs_stream3, rootfs_stream4] = rootfs_stream1.tee()
-
         const rootfs_extractor = new RootfsExtractor(rootfs_stream2)
 
-        // Store rootfs download in local storage if possible
-        if (this.#db.isOpen()) {
-            try {
-                // request persistence via navigator.storage.persist
-                console.log("Asking for persistent storage...")
-                navigator.storage.persist().then(persistence => {
-                    if (persistence) {
-                        console.log("Got persistent storage")
-                    } else {
-                        console.warn("Did not get persistent storage")
-                    }
-                });
-
-                (async () => {
-                    const chunks = []
-                    for await (const chunk of rootfs_stream3) {
-                        chunks.push(chunk)
-                    }
-                    await this.#db.write({ checksum: ARCHIVE_CHECKSUM, archive: new Blob(chunks) })
-                })().catch((e) => console.error(e))
-
-            } catch (e) {
-                // unsure whether navigator.storage.persist itself throws or whether
-                // the thrown error is wrapped in the promise
-                // the MDN documentation suggests the former, so I assume that
-                console.error(e)
-                console.warn("Failed to obtain local storage shelf, will not store downloaded rootfs")
-            }
-        } else {
-            console.warn("DB is closed, so cannot store downloaded rootfs archive")
-        }
-        for await (const chunk of rootfs_stream4) {
+        for await (const chunk of rootfs_stream1) {
             this.#rootfsDownloadProgress += chunk.length
         }
 
         console.log("rootfs.tar.zst downloaded")
 
-        return await rootfs_extractor.rootfs
+        return await rootfs_extractor.rootfs.catch(async (e) => {
+            // Remove rootfs from cache if extraction fails
+            await this.#cache.delete(ROOTFS_URL)
+            throw e
+        })
     }
 
-    #db
+    #cache
 
-    constructor(db: BlobsDB) {
-        this.#db = db
+    constructor(cache: Cache) {
+        this.#cache = cache
 
         const WIDTH = 400
         const HEIGHT = 250
