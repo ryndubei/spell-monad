@@ -94,8 +94,6 @@ export class DownloadScreen implements Screen {
 
     #cache
 
-    #resizeDialogByScreenSize: (w: number, h: number) => void
-
     constructor(cache: Cache) {
         this.#cache = cache
 
@@ -229,7 +227,16 @@ export class DownloadScreen implements Screen {
             thisDialog.x = w / 2
             thisDialog.y = h / 2
         }
+        const thisProgress = this.#progressBar
+        this.#resizeProgressByScreenSize = (w, h) => {
+            thisProgress.x = w / 2 - (thisProgress.width / 2)
+            thisProgress.y = h / 2
+        }
     }
+
+    #resizeDialogByScreenSize: (w: number, h: number) => void
+
+    #resizeProgressByScreenSize: (w: number, h: number) => void
 
     setup(app: Application): void {
         this.#resizeDialogByScreenSize(app.screen.width, app.screen.height)
@@ -243,15 +250,12 @@ export class DownloadScreen implements Screen {
 
             app.renderer.removeListener('resize', this.#resizeDialogByScreenSize)
 
-            this.#progressBar.x = app.screen.width / 2 - (this.#progressBar.width / 2)
-            this.#progressBar.y = app.screen.height / 2
-
-            app.renderer.on('resize', (w,h) => {
-              this.#progressBar.x = w / 2 - (this.#progressBar.width / 2)
-              this.#progressBar.y = h / 2
-            })
+            app.renderer.on('resize', this.#resizeDialogByScreenSize)
 
             app.stage.addChild(this.#progressBar)
+
+            this.#resizeProgressByScreenSize(app.screen.width, app.screen.height)
+            app.renderer.on('resize', this.#resizeProgressByScreenSize)
 
             this.#ticker.add(() => {
                 if (this.#rootfsDownloadSize != 0) {
@@ -266,12 +270,13 @@ export class DownloadScreen implements Screen {
     }
 
     cleanup(app: Application): void {
+        app.renderer.removeListener('resize', this.#resizeDialogByScreenSize)
+        app.renderer.removeListener('resize', this.#resizeProgressByScreenSize)
         app.stage.removeChild(this.#dialog)
         app.stage.removeChild(this.#dialog)
         this.#dialog.destroy()
         this.#progressBar.destroy()
         this.#ticker.destroy()
-        app.renderer.removeListener('resize', this.#resizeDialogByScreenSize)
     }
 }
 
