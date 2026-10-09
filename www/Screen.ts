@@ -280,3 +280,38 @@ export class DownloadScreen implements Screen {
     }
 }
 
+export class LoadingScreen implements Screen {
+    #loadingText = new Text({
+        text: "Loading...",
+        style: {
+            fontSize: 36,
+            align: 'center',
+            fontWeight: 'bold',
+            fill: 'white',
+            fontFamily: 'monospace',
+        }
+    })
+
+    constructor() {
+        this.#loadingText.anchor.set(0.5)
+
+        const thisLoadingText = this.#loadingText
+        this.#repositionByScreenSize = (w: number, h: number) => {
+            thisLoadingText.x = w / 2
+            thisLoadingText.y = h / 2
+        }
+    }
+
+    #repositionByScreenSize: (w: number, h: number) => void
+
+    setup(app: Application) {
+        app.stage.addChild(this.#loadingText)
+        this.#repositionByScreenSize(app.screen.width, app.screen.height)
+        app.renderer.addListener('resize', this.#repositionByScreenSize)
+    }
+
+    cleanup(app: Application) {
+        app.renderer.removeListener('resize', this.#repositionByScreenSize)
+        app.stage.removeChild(this.#loadingText)
+    }
+}

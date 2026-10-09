@@ -1,5 +1,5 @@
 import { Game } from './Game.ts'
-import { DownloadScreen } from './Screen.ts'
+import { DownloadScreen, LoadingScreen } from './Screen.ts'
 import { ARCHIVE_CHECKSUM } from './generated/constants.mjs'
 import { RootfsExtractor } from './RootfsExtractor.ts'
 
@@ -40,6 +40,8 @@ if (rootfs_req?.ok && rootfs_req.body !== undefined && rootfs_req.body !== null)
 if (rootfs != null) {
     try {
         const rootfs_extractor = new RootfsExtractor(rootfs)
+        await game_initialised
+        game.viewport.screen = new LoadingScreen()
         rootfs = await rootfs_extractor.rootfs
     } catch (e) {
         console.error(e)
@@ -47,16 +49,16 @@ if (rootfs != null) {
         await game_initialised
         game.viewport.screen = new DownloadScreen(rootfs_cache) 
         rootfs = await (game.viewport.screen as DownloadScreen).rootfs
+        game.viewport.screen = new LoadingScreen()
     }
 } else {
-    console.log("Did not find already-downloaded rootfs.tar.zst, downloading again")
     await game_initialised
     game.viewport.screen = new DownloadScreen(rootfs_cache)
     rootfs = await (game.viewport.screen as DownloadScreen).rootfs
+    game.viewport.screen = new LoadingScreen()
 }
 console.log("rootfs extracted")
 console.log(rootfs)
 
 await game_initialised
 await game.run(rootfs)
-
