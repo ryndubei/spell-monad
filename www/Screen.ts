@@ -221,21 +221,22 @@ export class DownloadScreen implements Screen {
         this.#progressBar.addChild(this.#progressText)
     }
 
-    setup(app: Application): void {
-        this.#dialog.x = app.screen.width / 2
-        this.#dialog.y = app.screen.height / 2
+    #resizeDialogByScreenSize(w: number, h: number) {
+        this.#dialog.x = w / 2
+        this.#dialog.y = h / 2
+    }
 
-        app.renderer.on('resize', (w,h) => {
-            this.#dialog.x = w / 2
-            this.#dialog.y = h / 2
-        })
+    setup(app: Application): void {
+        this.#resizeDialogByScreenSize(app.screen.width, app.screen.height)
+
+        app.renderer.on('resize', this.#resizeDialogByScreenSize)
 
         this.#dialog.onSelect.connect(() => {
             console.log("Received download confirmation")
             this.#resolveConfirmation()
             app.stage.removeChild(this.#dialog)
 
-            app.renderer.removeListener('resize')
+            app.renderer.removeListener('resize', this.#resizeDialogByScreenSize)
 
             this.#progressBar.x = app.screen.width / 2 - (this.#progressBar.width / 2)
             this.#progressBar.y = app.screen.height / 2
@@ -265,7 +266,7 @@ export class DownloadScreen implements Screen {
         this.#dialog.destroy()
         this.#progressBar.destroy()
         this.#ticker.destroy()
-        app.renderer.removeListener('resize')
+        app.renderer.removeListener('resize', this.#resizeDialogByScreenSize)
     }
 }
 
