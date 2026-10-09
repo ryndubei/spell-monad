@@ -94,6 +94,8 @@ export class DownloadScreen implements Screen {
 
     #cache
 
+    #resizeDialogByScreenSize: (w: number, h: number) => void
+
     constructor(cache: Cache) {
         this.#cache = cache
 
@@ -219,11 +221,14 @@ export class DownloadScreen implements Screen {
         this.#progressText.y = this.#progressBar.height / 2
 
         this.#progressBar.addChild(this.#progressText)
-    }
 
-    #resizeDialogByScreenSize(w: number, h: number) {
-        this.#dialog.x = w / 2
-        this.#dialog.y = h / 2
+        // https://stackoverflow.com/questions/1081499/accessing-an-objects-property-from-an-event-listener-call-in-javascript
+        // this is so fucking stupid 💔 🥀
+        const thisDialog = this.#dialog
+        this.#resizeDialogByScreenSize = (w, h) => {
+            thisDialog.x = w / 2
+            thisDialog.y = h / 2
+        }
     }
 
     setup(app: Application): void {
