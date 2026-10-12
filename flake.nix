@@ -22,7 +22,7 @@
     in
     {
       devShells.${system} = {
-        hls = haskell-language-server.devShells.${system}.shell-ghc914;
+        hls = (haskell-language-server.devShells.${system}.shell-ghc914) // { shellHook = ""; };
         wasm = pkgs.mkShell {
           buildInputs = [
             ghc-wasm-meta.packages.${system}.all_9_14
@@ -36,10 +36,6 @@
             hls
             wasm
           ];
-          shellHook = ''
-            # Uninstall empty pre-commit hook installed by HLS shell
-            pre-commit uninstall
-          '';
         };
       };
       overlay.${system} = k: p: {
