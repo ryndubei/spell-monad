@@ -14,7 +14,8 @@
   "dependencies": {
     "@bjorn3/browser_wasi_shim": "file:browser_wasi_shim",
     "@pixi/ui": "^2.3.2",
-    "pixi.js": "^8.19.0"
+    "pixi.js": "^8.19.0",
+    "typed-signals": "^3.0.0"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
