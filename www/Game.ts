@@ -4,6 +4,7 @@ import { main, DyLDBrowserHost } from './ghc/dyld.mjs'
 import { Application } from 'pixi.js'
 import type { Screen } from './Screen.ts'
 import { EmptyScreen } from './Screen.ts'
+import '@pixi/layout'
 
 declare global {
     /**
@@ -20,6 +21,25 @@ export class Game {
     async init() {
         await this.#app.init(
             { resizeTo: window })
+
+        this.#app.stage.layout = {
+            justifyContent: 'center',
+            alignContent: 'center',
+            width: this.#app.renderer.width,
+            height: this.#app.renderer.height
+        }
+
+        this.#app.stage.x = 0
+        this.#app.stage.y = this.#app.renderer.height / 2
+
+        const thatApp = this.#app
+        this.#app.renderer.addListener('resize', (w: number, h: number) => {
+            thatApp.stage.layout = {
+                width: w,
+                height: h
+            }
+            thatApp.stage.y = thatApp.renderer.height / 2
+        })
 
         // Needs to be in globalThis to be exposed to the game.
         // Alternatively, could sneak in an instance of InodeMem with extra methods
