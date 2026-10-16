@@ -101,8 +101,6 @@ export class DownloadDialog extends Dialog {
             that.onConfirmDownload.emit()
             that.close()
         })
-
-        this.open()
     }
 }
 

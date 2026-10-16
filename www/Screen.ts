@@ -96,10 +96,10 @@ export class DownloadScreen implements Screen {
 
     setup(app: Application): void {
         app.stage.addChild(this.#dialog)
+        this.#dialog.open()
 
         const that = this
         this.#dialog.onConfirmDownload.connect(() => {
-            app.stage.removeChild(that.#dialog)
             app.stage.addChild(that.#progressBarWrapper)
         })
     }
