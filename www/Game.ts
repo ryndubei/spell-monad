@@ -11,12 +11,12 @@ declare global {
      * The Haskell part of the game controls the user interface by calling methods on
      * __GAME_VIEWPORT over Javascript FFI.
      */
-    var __GAME_VIEWPORT: GameViewport
+    var __GAME_STAGE: GameStage
 }
 
 export class Game {
     #app = new Application()
-    viewport = new GameViewport(this.#app)
+    viewport = new GameStage(this.#app)
 
     async init() {
         await this.#app.init(
@@ -44,7 +44,7 @@ export class Game {
         // Needs to be in globalThis to be exposed to the game.
         // Alternatively, could sneak in an instance of InodeMem with extra methods
         // to rootfs, but that is a far more annoying approach.
-        globalThis.__GAME_VIEWPORT = this.viewport
+        globalThis.__GAME_STAGE = this.viewport
 
         // Show the canvas as soon as the DOM is loaded
         if (document.readyState === "loading") {
@@ -78,7 +78,7 @@ export class Game {
     }
 }
 
-export class GameViewport {
+export class GameStage {
     constructor(app: Application) {
         this.#app = app
     }
