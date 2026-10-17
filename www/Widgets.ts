@@ -1,5 +1,5 @@
 import { Button, Dialog, type DialogOptions, ProgressBar, type ProgressBarOptions } from "@pixi/ui"
-import { BitmapText, Color, Graphics, Text, type CanvasTextOptions } from "pixi.js"
+import { BitmapText, Color, Graphics, Text, type CanvasTextOptions, type GraphicsOptions, type ColorSource } from "pixi.js"
 import { Signal } from "typed-signals"
 
 const WIDTH = 400
@@ -179,3 +179,47 @@ export class LoadingText extends Text {
         super(options)
     }
 }
+
+export interface BorderOptions extends GraphicsOptions {
+    borderColor?: ColorSource
+    borderThickness?: number
+    borderMargin?: number
+}
+
+export class Border extends Graphics {
+    constructor(options?: BorderOptions) {
+        super(options)
+
+        const borderColor = options?.borderColor || 'white'
+        const borderThickness = options?.borderThickness || 1
+        const borderMargin = options?.borderMargin || 0
+
+        this.#drawBorder(borderColor, borderThickness, borderMargin)
+
+        const that = this
+        this.addListener('childAdded', () => {
+            if (that.context) {
+                that.clear()
+                that.#drawBorder(borderColor, borderThickness, borderMargin)
+            }
+        })
+        this.addListener('childRemoved', () => {
+            if (that.context) {
+                that.clear()
+                that.#drawBorder(borderColor, borderThickness, borderMargin)
+            }
+        })
+    }
+
+    #drawBorder(borderColor: ColorSource, borderThickness: number, borderMargin: number) {
+        const bounds = this.getLocalBounds()
+        this.rect(bounds.minX - borderThickness - borderMargin
+                , bounds.minY - borderThickness - borderMargin
+                , bounds.width + 2*borderThickness + 2*borderMargin
+                , bounds.height + 2*borderThickness + 2*borderMargin)
+            .fill({color: borderColor })
+            .rect(bounds.minX - borderMargin, bounds.minY - borderMargin, bounds.width + 2*borderMargin, bounds.height + 2*borderMargin)
+            .cut()
+    }
+}
+

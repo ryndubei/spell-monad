@@ -1,7 +1,7 @@
 import type { PreopenDirectory } from '@bjorn3/browser_wasi_shim'
 import { Application, Container } from 'pixi.js'
 import { RootfsExtractor } from './RootfsExtractor'
-import { DownloadDialog, DownloadProgressBar, LoadingText, DOWNLOAD_CONFIRM_DIALOG_TEXT } from './Widgets'
+import { DownloadDialog, DownloadProgressBar, LoadingText, DOWNLOAD_CONFIRM_DIALOG_TEXT, Border } from './Widgets'
 import { Signal } from 'typed-signals'
 
 export interface Screen {
@@ -82,7 +82,7 @@ export class DownloadScreen implements Screen {
         this.#dialog.layout = true
 
         this.#progressBar = new DownloadProgressBar(this.#onProgressUpdate)
-        this.#progressBarWrapper = new Container({children: [this.#progressBar]})
+        this.#progressBarWrapper = new Container({ children: [this.#progressBar] })
         this.#progressBarWrapper.layout = true
         this.#progressBar.x = -this.#progressBar.width / 2
 
@@ -122,9 +122,11 @@ export class LoadingScreen implements Screen {
     #loadingText
 
     constructor() {
-        this.#loadingText = new LoadingText()
+        const t = new LoadingText()
+        this.#loadingText = new Border({ borderThickness: 3, borderMargin: 5})
         this.#loadingText.layout = true
-        this.#loadingText.anchor.set(0.5)
+        t.anchor.set(0.5)
+        this.#loadingText.addChild(t)
     }
 
     setup(app: Application) {
