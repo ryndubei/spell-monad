@@ -132,7 +132,9 @@ export class DownloadProgressBar extends ProgressBar {
         const progressText = new BitmapText({
             text: "",
             style: {
-                fontFamily: 'Arial',
+                fontFamily: 'monospace',
+                fontWeight: 'bold',
+                fill: 'white',
                 fontSize: 24
             }
         })
