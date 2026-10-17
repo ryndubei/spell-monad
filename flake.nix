@@ -24,8 +24,9 @@
       devShells.${system} = {
         hls = (haskell-language-server.devShells.${system}.shell-ghc914) // { shellHook = ""; };
         wasm = pkgs.mkShell {
-          buildInputs = [
+          buildInputs = with pkgs; [
             ghc-wasm-meta.packages.${system}.all_9_14
+            typescript-language-server
           ];
           shellHook = ''
             export BSDTAR_WASM_PATH=${self.packages.${system}.pkgsCross.wasi32.bsdtar-wasm}
