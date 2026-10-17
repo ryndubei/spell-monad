@@ -23,6 +23,12 @@ const PROGRESS_HEIGHT = 35
 const PROGRESS_BORDER = 3
 const PROGRESS_FILL_COLOUR = BUTTON_COLOUR
 
+export const DOWNLOAD_CONFIRM_DIALOG_TEXT =
+    "Pressing 'OK' will fetch a ~85MiB blob containing binaries necessary to "
+    + "run the game, such as GHC shared libraries. If you are on a metered "
+    + "connection, you may wish to leave the page now instead.\n\n"
+    + "Are you sure that you want to continue?"
+
 export class DownloadDialog extends Dialog {
     onConfirmDownload: Signal<() => void> = new Signal()
 
@@ -52,9 +58,7 @@ export class DownloadDialog extends Dialog {
             }),
             content: new Text({
                 // TODO: calculate size of the download at compile time?
-                text: "Pressing 'OK' will fetch a ~85MiB blob containing binaries necessary to "
-                    + "run the game, such as GHC shared libraries. If you are on a metered "
-                    + "connection, you may wish to leave the page now instead.",
+                text: DOWNLOAD_CONFIRM_DIALOG_TEXT,
                 style: {
                     fontSize: 16,
                     align: 'center',

@@ -1,7 +1,7 @@
 import type { PreopenDirectory } from '@bjorn3/browser_wasi_shim'
 import { Application, Container } from 'pixi.js'
 import { RootfsExtractor } from './RootfsExtractor'
-import { DownloadDialog, DownloadProgressBar, LoadingText } from './Widgets'
+import { DownloadDialog, DownloadProgressBar, LoadingText, DOWNLOAD_CONFIRM_DIALOG_TEXT } from './Widgets'
 import { Signal } from 'typed-signals'
 
 export interface Screen {
@@ -96,12 +96,20 @@ export class DownloadScreen implements Screen {
 
     setup(app: Application): void {
         app.stage.addChild(this.#dialog)
-        this.#dialog.open()
 
         const that = this
         this.#dialog.onConfirmDownload.connect(() => {
             app.stage.addChild(that.#progressBarWrapper)
         })
+
+        // Try native dialog first, fall back to pixi.js dialog if cancelled or
+        // blocked by the browser
+        const response = window.confirm(DOWNLOAD_CONFIRM_DIALOG_TEXT)
+        if (response) {
+            this.#dialog.onConfirmDownload.emit()
+        } else {
+            this.#dialog.open()
+        }
     }
 
     cleanup(): void {
