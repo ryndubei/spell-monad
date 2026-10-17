@@ -3,7 +3,7 @@ import { BitmapText, Color, Graphics, Text, type CanvasTextOptions } from "pixi.
 import { Signal } from "typed-signals"
 
 const WIDTH = 400
-const HEIGHT = 250
+const HEIGHT = 280
 const RADIUS = 20
 const PADDING = 20
 const PANEL_COLOUR = '#222425'
