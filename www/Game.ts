@@ -12,6 +12,11 @@ declare global {
      * __GAME_VIEWPORT over Javascript FFI.
      */
     var __GAME_STAGE: GameStage
+
+    /**
+     * https://github.com/bfanger/pixi-inspector
+     *   */
+    var __PIXI_APP__: Application
 }
 
 export class Game {
@@ -19,6 +24,7 @@ export class Game {
     viewport = new GameStage(this.#app)
 
     async init() {
+        globalThis.__PIXI_APP__ = this.#app
         await this.#app.init(
             { resizeTo: window })
 
