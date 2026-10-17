@@ -147,7 +147,7 @@ export class DownloadProgressBar extends ProgressBar {
         const that = this
 
         onProgressUpdate.connect((downloadedBytes, toDownloadBytes) => {
-            progressText.text = `${((downloadedBytes) / (1024 * 1024)).toFixed(1)} / (${(toDownloadBytes / (1024 * 1024)).toFixed(1)} MiB`
+            progressText.text = `${((downloadedBytes) / (1024 * 1024)).toFixed(1)} / ${(toDownloadBytes / (1024 * 1024)).toFixed(1)} MiB`
             if (toDownloadBytes !== 0) {
                 that.progress = 100 * downloadedBytes / toDownloadBytes
             }
