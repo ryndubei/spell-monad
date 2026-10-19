@@ -191,7 +191,9 @@ export class GameViewport extends LayoutContainer {
                 backgroundColor: 'black'
             }
         }
-        super(Object.assign({}, defaults, options))
+        const layoutOptions = Object.assign({}, defaults.layout, options?.layout)
+        const options2 = Object.assign({}, defaults, options, { layout: layoutOptions })
+        super(options2)
     }
 
 }
