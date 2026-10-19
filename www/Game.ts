@@ -9,7 +9,7 @@ import '@pixi/layout'
 declare global {
     /**
      * The Haskell part of the game controls the user interface by calling methods on
-     * __GAME_VIEWPORT over Javascript FFI.
+     * __GAME_STAGE over Javascript FFI.
      */
     var __GAME_STAGE: GameStage
 
@@ -21,7 +21,7 @@ declare global {
 
 export class Game {
     #app = new Application()
-    viewport = new GameStage(this.#app)
+    gameStage = new GameStage(this.#app)
 
     async init() {
         globalThis.__PIXI_APP__ = this.#app
@@ -40,7 +40,7 @@ export class Game {
         // Needs to be in globalThis to be exposed to the game.
         // Alternatively, could sneak in an instance of InodeMem with extra methods
         // to rootfs, but that is a far more annoying approach.
-        globalThis.__GAME_STAGE = this.viewport
+        globalThis.__GAME_STAGE = this.gameStage
 
         // Show the canvas as soon as the DOM is loaded
         if (document.readyState === "loading") {

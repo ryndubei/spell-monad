@@ -41,25 +41,25 @@ if (rootfs != null) {
     try {
         const rootfs_extractor = new RootfsExtractor(rootfs)
         await game_initialised
-        game.viewport.screen = new LoadingScreen()
+        game.gameStage.screen = new LoadingScreen()
         rootfs = await rootfs_extractor.rootfs
     } catch (e) {
         console.error(e)
         console.warn("Redownloading rootfs due to extraction failure")
         await game_initialised
-        game.viewport.screen = new DownloadScreen(rootfs_cache) 
-        rootfs = await (game.viewport.screen as DownloadScreen).rootfs
-        game.viewport.screen = new LoadingScreen()
+        game.gameStage.screen = new DownloadScreen(rootfs_cache)
+        rootfs = await (game.gameStage.screen as DownloadScreen).rootfs
+        game.gameStage.screen = new LoadingScreen()
     }
 } else {
     await game_initialised
-    game.viewport.screen = new DownloadScreen(rootfs_cache)
-    rootfs = await (game.viewport.screen as DownloadScreen).rootfs
-    game.viewport.screen = new LoadingScreen()
+    game.gameStage.screen = new DownloadScreen(rootfs_cache)
+    rootfs = await (game.gameStage.screen as DownloadScreen).rootfs
+    game.gameStage.screen = new LoadingScreen()
 }
 console.log("rootfs extracted")
 console.log(rootfs)
 
 await game_initialised
-game.viewport.screen = new GameScreen()
+game.gameStage.screen = new GameScreen()
 await game.run(rootfs)
