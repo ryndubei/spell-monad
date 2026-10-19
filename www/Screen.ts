@@ -79,11 +79,9 @@ export class DownloadScreen implements Screen {
         this.#cache = cache
 
         this.#dialog = new DownloadDialog()
-        this.#dialog.layout = true
 
         this.#progressBar = new DownloadProgressBar(this.#onProgressUpdate)
         this.#progressBarWrapper = new Container({ children: [this.#progressBar] })
-        this.#progressBarWrapper.layout = true
         this.#progressBar.x = -this.#progressBar.width / 2
 
         const that = this
@@ -124,7 +122,6 @@ export class LoadingScreen implements Screen {
     constructor() {
         const t = new LoadingText()
         this.#loadingText = new Border({ borderThickness: 3, borderMargin: 5})
-        this.#loadingText.layout = true
         t.anchor.set(0.5)
         this.#loadingText.addChild(t)
     }
