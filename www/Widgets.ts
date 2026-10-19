@@ -1,5 +1,5 @@
 import { Button, Dialog, type DialogOptions, ProgressBar, type ProgressBarOptions } from "@pixi/ui"
-import { BitmapText, Color, Graphics, Text, type CanvasTextOptions, type GraphicsOptions, type ColorSource } from "pixi.js"
+import { BitmapText, Color, Graphics, Text, type CanvasTextOptions, Container, type GraphicsOptions, type ColorSource, type ContainerChild, type ContainerOptions } from "pixi.js"
 import { Signal } from "typed-signals"
 
 const WIDTH = 400
@@ -218,3 +218,39 @@ export class Border extends Graphics {
     }
 }
 
+export interface GameWindowOptions extends ContainerOptions {
+    windowSize?: { w: number, h: number }
+}
+
+export class GameWindow extends Container {
+    set windowSize(ws: { w: number, h: number }) {
+        this.#windowSize = ws
+        this.#redraw()
+    }
+
+    get windowSize() {
+        return this.#windowSize
+    }
+
+    #background = new Graphics()
+
+    #windowSize: { w: number, h: number }
+
+    #redraw() {
+        this.#background.clear()
+        this.#drawBackground()
+    }
+
+    #drawBackground() {
+        console.log(this.#windowSize)
+        this.#background.rect(-(this.#windowSize.w / 2), -(this.#windowSize.h / 2), this.#windowSize.w, this.#windowSize.h).fill('black')
+    }
+
+    constructor(options?: GameWindowOptions) {
+        super(options)
+
+        this.#windowSize = { w: options?.windowSize?.w || 1000, h: options?.windowSize?.h || 1000 }
+        this.#drawBackground()
+        this.addChild(this.#background)
+    }
+}

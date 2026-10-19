@@ -1,5 +1,5 @@
 import { Game } from './Game.ts'
-import { DownloadScreen, LoadingScreen } from './Screen.ts'
+import { DownloadScreen, LoadingScreen, GameScreen } from './Screen.ts'
 import { ARCHIVE_CHECKSUM } from './generated/constants.mjs'
 import { RootfsExtractor } from './RootfsExtractor.ts'
 
@@ -61,4 +61,5 @@ console.log("rootfs extracted")
 console.log(rootfs)
 
 await game_initialised
+game.viewport.screen = new GameScreen()
 await game.run(rootfs)

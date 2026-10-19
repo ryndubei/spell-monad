@@ -1,7 +1,7 @@
 import type { PreopenDirectory } from '@bjorn3/browser_wasi_shim'
 import { Application, Container } from 'pixi.js'
 import { RootfsExtractor } from './RootfsExtractor'
-import { DownloadDialog, DownloadProgressBar, LoadingText, DOWNLOAD_CONFIRM_DIALOG_TEXT, Border } from './Widgets'
+import { DownloadDialog, DownloadProgressBar, LoadingText, DOWNLOAD_CONFIRM_DIALOG_TEXT, GameWindow, Border } from './Widgets'
 import { Signal } from 'typed-signals'
 
 export interface Screen {
@@ -131,5 +131,42 @@ export class LoadingScreen implements Screen {
 
     cleanup() {
         this.#loadingText.destroy({ children: true })
+    }
+}
+
+export class GameScreen implements Screen {
+    #gameWindow
+    #border
+
+    constructor() {
+        this.#gameWindow = new GameWindow()
+        this.#border = new Border({ children: [this.#gameWindow], borderThickness: 4, borderMargin: 0 })
+    }
+
+    #listenerToRemove: null | ((w: number, h: number) => void) = null
+
+    setup(app: Application) {
+        this.#gameWindow.windowSize = { w: app.renderer.width - 16, h: app.renderer.height - 16 }
+        this.#border.redraw()
+
+        app.stage.addChild(this.#border)
+
+        const thatGameWindow = this.#gameWindow
+        const thatBorder = this.#border
+        const onResize = (w: number, h: number) => {
+            thatGameWindow.windowSize = { w: w - 16, h: h - 16 }
+            thatBorder.redraw()
+        }
+
+        app.renderer.addListener('resize', onResize)
+        this.#listenerToRemove = onResize
+    }
+
+    cleanup(app: Application) {
+        this.#border.destroy({ children: true })
+        const rsz = this.#listenerToRemove
+        if (rsz !== null) {
+            app.renderer.removeListener('resize', rsz)
+        }
     }
 }
