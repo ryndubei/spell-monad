@@ -209,11 +209,11 @@ export class Border extends Graphics {
     #drawBorder(borderColor: ColorSource, borderThickness: number, borderMargin: number) {
         const bounds = this.getLocalBounds()
         this.rect(bounds.minX - borderThickness - borderMargin
-                , bounds.minY - borderThickness - borderMargin
-                , bounds.width + 2*borderThickness + 2*borderMargin
-                , bounds.height + 2*borderThickness + 2*borderMargin)
-            .fill({color: borderColor })
-            .rect(bounds.minX - borderMargin, bounds.minY - borderMargin, bounds.width + 2*borderMargin, bounds.height + 2*borderMargin)
+            , bounds.minY - borderThickness - borderMargin
+            , bounds.width + 2 * borderThickness + 2 * borderMargin
+            , bounds.height + 2 * borderThickness + 2 * borderMargin)
+            .fill({ color: borderColor })
+            .rect(bounds.minX - borderMargin, bounds.minY - borderMargin, bounds.width + 2 * borderMargin, bounds.height + 2 * borderMargin)
             .cut()
     }
 }
