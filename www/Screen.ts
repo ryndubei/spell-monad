@@ -121,9 +121,8 @@ export class LoadingScreen implements Screen {
 
     constructor() {
         const t = new LoadingText()
-        this.#loadingText = new Border({ borderThickness: 3, borderMargin: 5})
         t.anchor.set(0.5)
-        this.#loadingText.addChild(t)
+        this.#loadingText = new Border({ children: [t], borderThickness: 3, borderMargin: 5 })
     }
 
     setup(app: Application) {

@@ -187,28 +187,23 @@ export interface BorderOptions extends GraphicsOptions {
 }
 
 export class Border extends Graphics {
+    borderColor
+    borderThickness
+    borderMargin
+
     constructor(options?: BorderOptions) {
         super(options)
 
-        const borderColor = options?.borderColor || 'white'
-        const borderThickness = options?.borderThickness || 1
-        const borderMargin = options?.borderMargin || 0
+        this.borderColor = options?.borderColor || 'white'
+        this.borderThickness = options?.borderThickness || 1
+        this.borderMargin = options?.borderMargin || 0
 
-        this.#drawBorder(borderColor, borderThickness, borderMargin)
+        this.#drawBorder(this.borderColor, this.borderThickness, this.borderMargin)
+    }
 
-        const that = this
-        this.addListener('childAdded', () => {
-            if (that.context) {
-                that.clear()
-                that.#drawBorder(borderColor, borderThickness, borderMargin)
-            }
-        })
-        this.addListener('childRemoved', () => {
-            if (that.context) {
-                that.clear()
-                that.#drawBorder(borderColor, borderThickness, borderMargin)
-            }
-        })
+    redraw() {
+        this.clear()
+        this.#drawBorder(this.borderColor, this.borderThickness, this.borderMargin)
     }
 
     #drawBorder(borderColor: ColorSource, borderThickness: number, borderMargin: number) {
