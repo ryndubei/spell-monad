@@ -111,8 +111,8 @@ export class DownloadScreen implements Screen {
     }
 
     cleanup(): void {
-        this.#dialog.destroy()
-        this.#progressBarWrapper.destroy()
+        this.#dialog.destroy({ children: true })
+        this.#progressBarWrapper.destroy({ children: true })
     }
 }
 
@@ -131,6 +131,6 @@ export class LoadingScreen implements Screen {
     }
 
     cleanup() {
-        this.#loadingText.destroy()
+        this.#loadingText.destroy({ children: true })
     }
 }
