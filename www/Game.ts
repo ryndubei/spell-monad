@@ -28,23 +28,13 @@ export class Game {
         await this.#app.init(
             { resizeTo: window })
 
-        this.#app.stage.layout = {
-            justifyContent: 'center',
-            alignContent: 'center',
-            width: this.#app.renderer.width,
-            height: this.#app.renderer.height
-        }
-
-        this.#app.stage.x = 0
+        this.#app.stage.x = this.#app.renderer.width / 2
         this.#app.stage.y = this.#app.renderer.height / 2
 
         const thatApp = this.#app
         this.#app.renderer.addListener('resize', (w: number, h: number) => {
-            thatApp.stage.layout = {
-                width: w,
-                height: h
-            }
-            thatApp.stage.y = thatApp.renderer.height / 2
+            thatApp.stage.x = w / 2
+            thatApp.stage.y = h / 2
         })
 
         // Needs to be in globalThis to be exposed to the game.
