@@ -136,26 +136,21 @@ export class LoadingScreen implements Screen {
 
 export class GameScreen implements Screen {
     #gameWindow
-    #border
 
     constructor() {
         this.#gameWindow = new GameWindow()
-        this.#border = new Border({ children: [this.#gameWindow], borderThickness: 4, borderMargin: 0 })
     }
 
     #listenerToRemove: null | ((w: number, h: number) => void) = null
 
     setup(app: Application) {
         this.#gameWindow.windowSize = { w: app.renderer.width - 16, h: app.renderer.height - 16 }
-        this.#border.redraw()
 
-        app.stage.addChild(this.#border)
+        app.stage.addChild(this.#gameWindow)
 
         const thatGameWindow = this.#gameWindow
-        const thatBorder = this.#border
         const onResize = (w: number, h: number) => {
             thatGameWindow.windowSize = { w: w - 16, h: h - 16 }
-            thatBorder.redraw()
         }
 
         app.renderer.addListener('resize', onResize)
@@ -163,7 +158,7 @@ export class GameScreen implements Screen {
     }
 
     cleanup(app: Application) {
-        this.#border.destroy({ children: true })
+        this.#gameWindow.destroy({ children: true })
         const rsz = this.#listenerToRemove
         if (rsz !== null) {
             app.renderer.removeListener('resize', rsz)

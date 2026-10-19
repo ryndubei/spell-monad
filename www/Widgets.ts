@@ -1,6 +1,7 @@
 import { Button, Dialog, type DialogOptions, ProgressBar, type ProgressBarOptions } from "@pixi/ui"
 import { BitmapText, Color, Graphics, Text, type CanvasTextOptions, Container, type GraphicsOptions, type ColorSource, type ContainerChild, type ContainerOptions } from "pixi.js"
 import { Signal } from "typed-signals"
+import { LayoutContainer, type LayoutContainerOptions } from "@pixi/layout/components"
 
 const WIDTH = 400
 const HEIGHT = 280
@@ -180,6 +181,21 @@ export class LoadingText extends Text {
     }
 }
 
+export class GameViewport extends LayoutContainer {
+    onKeyDown = new Signal<(event: KeyboardEvent) => void>()
+
+    constructor(options?: LayoutContainerOptions) {
+        const defaults: LayoutContainerOptions = {
+            layout: {
+                overflow: 'hidden',
+                backgroundColor: 'black'
+            }
+        }
+        super(Object.assign({}, defaults, options))
+    }
+
+}
+
 export interface BorderOptions extends GraphicsOptions {
     borderColor?: ColorSource
     borderThickness?: number
@@ -225,32 +241,45 @@ export interface GameWindowOptions extends ContainerOptions {
 export class GameWindow extends Container {
     set windowSize(ws: { w: number, h: number }) {
         this.#windowSize = ws
-        this.#redraw()
+        this.#positionInnerContainer()
+        this.#viewport.layout = {
+            width: ws.w,
+            height: ws.h
+        }
     }
 
     get windowSize() {
         return this.#windowSize
     }
 
-    #background = new Graphics()
+    #innerContainer = new Container()
+
+    #positionInnerContainer() {
+        this.#innerContainer.x = -this.#windowSize.w / 2
+        this.#innerContainer.y = -this.#windowSize.h / 2
+    }
+
+    #viewport
 
     #windowSize: { w: number, h: number }
-
-    #redraw() {
-        this.#background.clear()
-        this.#drawBackground()
-    }
-
-    #drawBackground() {
-        console.log(this.#windowSize)
-        this.#background.rect(-(this.#windowSize.w / 2), -(this.#windowSize.h / 2), this.#windowSize.w, this.#windowSize.h).fill('black')
-    }
 
     constructor(options?: GameWindowOptions) {
         super(options)
 
         this.#windowSize = { w: options?.windowSize?.w || 1000, h: options?.windowSize?.h || 1000 }
-        this.#drawBackground()
-        this.addChild(this.#background)
+
+        this.#positionInnerContainer()
+
+        this.#viewport = new GameViewport({
+            layout: {
+                width: this.#windowSize.w,
+                height: this.#windowSize.h,
+                borderColor: 'white',
+                borderWidth: 4
+            }
+        })
+
+        this.addChild(this.#innerContainer)
+        this.#innerContainer.addChild(this.#viewport)
     }
 }
