@@ -1,5 +1,5 @@
 import { Button, Dialog, type DialogOptions, ProgressBar, type ProgressBarOptions } from "@pixi/ui"
-import { BitmapText, Color, Graphics, Text, type CanvasTextOptions, Container, type GraphicsOptions, type ColorSource, type ContainerChild, type ContainerOptions } from "pixi.js"
+import { BitmapText, Color, Graphics, Text, type CanvasTextOptions, Container, type GraphicsOptions, type ColorSource, type ContainerOptions } from "pixi.js"
 import { Signal } from "typed-signals"
 import { LayoutContainer, type LayoutContainerOptions } from "@pixi/layout/components"
 
