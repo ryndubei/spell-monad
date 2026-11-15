@@ -244,7 +244,7 @@ export class GameWindow extends Container {
     set windowSize(ws: { w: number, h: number }) {
         this.#windowSize = ws
         this.#positionInnerContainer()
-        this.#viewport.layout = {
+        this.viewport.layout = {
             width: ws.w,
             height: ws.h
         }
@@ -261,7 +261,7 @@ export class GameWindow extends Container {
         this.#innerContainer.y = -this.#windowSize.h / 2
     }
 
-    #viewport
+    viewport
 
     #windowSize: { w: number, h: number }
 
@@ -272,7 +272,7 @@ export class GameWindow extends Container {
 
         this.#positionInnerContainer()
 
-        this.#viewport = new GameViewport({
+        this.viewport = new GameViewport({
             layout: {
                 width: this.#windowSize.w,
                 height: this.#windowSize.h,
@@ -282,6 +282,6 @@ export class GameWindow extends Container {
         })
 
         this.addChild(this.#innerContainer)
-        this.#innerContainer.addChild(this.#viewport)
+        this.#innerContainer.addChild(this.viewport)
     }
 }
