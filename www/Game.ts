@@ -3,7 +3,7 @@ import { HS_SEARCH_DIR, CABAL_DYN_LIB_DIRS, MAIN_SO_PATH, MAIN_SO_BASE_NAME } fr
 import { main, DyLDBrowserHost } from './ghc/dyld.mjs'
 import { Application } from 'pixi.js'
 import type { Screen } from './Screen.ts'
-import { EmptyScreen } from './Screen.ts'
+import { EmptyScreen, LoadingScreen, GameScreen, DownloadScreen } from './Screen.ts'
 import '@pixi/layout'
 
 declare global {
@@ -91,5 +91,21 @@ export class GameStage {
         this.#screen.cleanup(this.#app)
         this.#screen = s
         s.setup(this.#app)
+    }
+
+    showDownloadScreen(...args: ConstructorParameters<typeof DownloadScreen>) {
+        this.screen = new DownloadScreen(...args)
+    }
+
+    showLoadingScreen(...args: ConstructorParameters<typeof LoadingScreen>) {
+        this.screen = new LoadingScreen(...args)
+    }
+
+    showGameScreen(...args: ConstructorParameters<typeof GameScreen>) {
+        this.screen = new GameScreen(...args)
+    }
+
+    showEmptyScreen(...args: ConstructorParameters<typeof EmptyScreen>) {
+        this.screen = new EmptyScreen(...args)
     }
 }

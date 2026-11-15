@@ -1,5 +1,5 @@
 import { Game } from './Game.ts'
-import { DownloadScreen, LoadingScreen, GameScreen } from './Screen.ts'
+import { DownloadScreen } from './Screen.ts'
 import { ARCHIVE_CHECKSUM } from './generated/constants.mjs'
 import { RootfsExtractor } from './RootfsExtractor.ts'
 
@@ -41,25 +41,25 @@ if (rootfs != null) {
     try {
         const rootfs_extractor = new RootfsExtractor(rootfs)
         await game_initialised
-        game.gameStage.screen = new LoadingScreen()
+        game.gameStage.showLoadingScreen()
         rootfs = await rootfs_extractor.rootfs
     } catch (e) {
         console.error(e)
         console.warn("Redownloading rootfs due to extraction failure")
         await game_initialised
-        game.gameStage.screen = new DownloadScreen(rootfs_cache)
+        game.gameStage.showDownloadScreen(rootfs_cache)
         rootfs = await (game.gameStage.screen as DownloadScreen).rootfs
-        game.gameStage.screen = new LoadingScreen()
+        game.gameStage.showLoadingScreen()
     }
 } else {
     await game_initialised
-    game.gameStage.screen = new DownloadScreen(rootfs_cache)
+    game.gameStage.showDownloadScreen(rootfs_cache)
     rootfs = await (game.gameStage.screen as DownloadScreen).rootfs
-    game.gameStage.screen = new LoadingScreen()
+    game.gameStage.showLoadingScreen()
 }
 console.log("rootfs extracted")
 console.log(rootfs)
 
 await game_initialised
-game.gameStage.screen = new GameScreen()
+game.gameStage.showGameScreen()
 await game.run(rootfs)
