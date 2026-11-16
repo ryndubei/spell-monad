@@ -1,5 +1,5 @@
 import { Button, Dialog, type DialogOptions, ProgressBar, type ProgressBarOptions } from "@pixi/ui"
-import { BitmapText, Color, Graphics, Text, type CanvasTextOptions, Container, type GraphicsOptions, type ColorSource, type ContainerOptions } from "pixi.js"
+import { BitmapText, Color, Graphics, Text, type CanvasTextOptions, Container, type GraphicsOptions, type ColorSource, type ContainerOptions, type FillInput } from "pixi.js"
 import { Signal } from "typed-signals"
 import { LayoutContainer, type LayoutContainerOptions } from "@pixi/layout/components"
 
@@ -182,8 +182,17 @@ export class LoadingText extends Text {
 }
 
 export class GameViewport extends LayoutContainer {
-    onKeyDown = new Signal<(event: KeyboardEvent) => void>()
-
+    #centeredContainer
+    #camera
+    // TODO as some override for setWidth/setHeight
+    recenter(x: number, y: number) {
+        this.#centeredContainer.x = x
+        this.#centeredContainer.y = y
+    }
+    setCamera(x: number, y: number) {
+        this.#camera.x = -x
+        this.#camera.y = -y
+    }
     constructor(options?: LayoutContainerOptions) {
         const defaults: LayoutContainerOptions = {
             layout: {
@@ -194,8 +203,28 @@ export class GameViewport extends LayoutContainer {
         const layoutOptions = Object.assign({}, defaults.layout, options?.layout)
         const options2 = Object.assign({}, defaults, options, { layout: layoutOptions })
         super(options2)
-    }
 
+        this.#centeredContainer = new Container()
+        this.addChild(this.#centeredContainer)
+        this.#camera = new Container()
+        this.#centeredContainer.addChild(this.#camera)
+        this.#camera.scale.set(30,30)
+    }
+    createRectangle(id: number, x: number, y: number, w: number, h: number, style: FillInput) {
+        const g = new Graphics
+        g.rect(x, y, w, h).fill(style)
+        try {
+            this.#camera.getChildAt(id).destroy()
+        } catch {}
+        this.#camera.addChildAt(g, id)
+    }
+    getViewportObject(id: number): Graphics | null {
+        try {
+            return this.#camera.getChildAt(id)
+        } catch {
+            return null
+        }
+    }
 }
 
 export interface BorderOptions extends GraphicsOptions {
@@ -243,11 +272,13 @@ export interface GameWindowOptions extends ContainerOptions {
 export class GameWindow extends Container {
     set windowSize(ws: { w: number, h: number }) {
         this.#windowSize = ws
-        this.#positionInnerContainer()
+        this.#innerContainer.x = -ws.w / 2
+        this.#innerContainer.y = -ws.h / 2
         this.viewport.layout = {
             width: ws.w,
             height: ws.h
         }
+        this.viewport.recenter(ws.w / 2, ws.h / 2)
     }
 
     get windowSize() {
@@ -255,11 +286,6 @@ export class GameWindow extends Container {
     }
 
     #innerContainer = new Container()
-
-    #positionInnerContainer() {
-        this.#innerContainer.x = -this.#windowSize.w / 2
-        this.#innerContainer.y = -this.#windowSize.h / 2
-    }
 
     viewport
 
@@ -270,7 +296,8 @@ export class GameWindow extends Container {
 
         this.#windowSize = { w: options?.windowSize?.w || 1000, h: options?.windowSize?.h || 1000 }
 
-        this.#positionInnerContainer()
+        this.#innerContainer.x = -this.#windowSize.w / 2
+        this.#innerContainer.y = -this.#windowSize.h / 2
 
         this.viewport = new GameViewport({
             layout: {
@@ -280,6 +307,7 @@ export class GameWindow extends Container {
                 borderWidth: 4
             }
         })
+        this.viewport.recenter(this.#windowSize.w / 2, this.#windowSize.h / 2)
 
         this.addChild(this.#innerContainer)
         this.#innerContainer.addChild(this.viewport)

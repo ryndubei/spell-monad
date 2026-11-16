@@ -135,20 +135,24 @@ export class LoadingScreen implements Screen {
 }
 
 export class GameScreen implements Screen {
-    gameWindow
+    #gameWindow
+
+    get gameViewport() {
+        return this.#gameWindow.viewport
+    }
 
     constructor() {
-        this.gameWindow = new GameWindow()
+        this.#gameWindow = new GameWindow()
     }
 
     #listenerToRemove: null | ((w: number, h: number) => void) = null
 
     setup(app: Application) {
-        this.gameWindow.windowSize = { w: app.renderer.width - 16, h: app.renderer.height - 16 }
+        this.#gameWindow.windowSize = { w: app.renderer.width - 16, h: app.renderer.height - 16 }
 
-        app.stage.addChild(this.gameWindow)
+        app.stage.addChild(this.#gameWindow)
 
-        const thatGameWindow = this.gameWindow
+        const thatGameWindow = this.#gameWindow
         const onResize = (w: number, h: number) => {
             thatGameWindow.windowSize = { w: w - 16, h: h - 16 }
         }
@@ -158,7 +162,7 @@ export class GameScreen implements Screen {
     }
 
     cleanup(app: Application) {
-        this.gameWindow.destroy({ children: true })
+        this.#gameWindow.destroy({ children: true })
         const rsz = this.#listenerToRemove
         if (rsz !== null) {
             app.renderer.removeListener('resize', rsz)
