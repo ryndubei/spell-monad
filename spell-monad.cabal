@@ -50,13 +50,11 @@ library spell
 
 library
     import:           warnings
-    exposed-modules:  App.UI.MainMenu
-                    , App.UI.GameScreen
-                    , App.UI.GameScreen.Terminal
+    exposed-modules:  App.UI.GameScreen
                     , App.UI.LoadingScreen
-                    , App.Thread
                     , App.Thread.Repl
                     , App.Thread.SF
+                    , App.Thread.UI
                     , DependentSums
                     , Input
                     , Run

@@ -81,7 +81,7 @@ runGame th = evalContT do
 
   bth <- ContT $ withGameUI th rth t0 s0
 
-  sfToBrickTh <- ContT . withAsync $ forever do
+  sfToUiTh <- ContT . withAsync $ forever do
     responses <- atomically do
       b <- isBrickQueueEmpty bth
       check b
@@ -96,12 +96,12 @@ runGame th = evalContT do
     threadDelay 33_000 -- 33ms
   lift $ link sfToBrickTh
 
-  brickToSfTh <- ContT . withAsync . forever $ atomically do
+  uiToSfTh <- ContT . withAsync . forever $ atomically do
     aui <- takeBrickThread bth
     case aui of
       GameInput ui -> sendSFThread sfth (mempty { gameInput = Event ui } )
       TermStdin c -> sendSFThread sfth (mempty { termStdin = Event $ Seq.singleton c })
-  lift $ link brickToSfTh
+  lift $ link uiToSfTh
 
   -- tail-recursive so fix should be ok
   replToSfTh <- ContT $ withAsync $ Nothing & fix \k mreq -> do
